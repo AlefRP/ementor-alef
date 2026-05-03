@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aws-lakehouse-mentoria"
+version = "0.1.0"
+description = "Base architecture project for AWS cold/hot data layers and governance"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "blue==0.9.1",
+  "isort==5.13.2",
+  "pytest==8.3.5",
+  "pytest-cov==5.0.0",
+  "bandit==1.7.9",
+  "pip-audit==2.8.0",
+]
+
+[tool.blue]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = [
+  "integration: marks tests as integration",
+  "taac: marks tests as TAAC",
+]
