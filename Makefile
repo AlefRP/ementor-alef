@@ -1,8 +1,8 @@
-.PHONY: install-dev format check-format lint security test test-unit test-integration test-taac
+.PHONY: install-prod format check-format lint security test test-unit test-integration test-taac
 
-install-dev:
+install-prod:
 	python -m pip install --upgrade pip
-	pip install -e .[dev]
+	pip install -e .[prod]
 
 format:
 	blue src tests
@@ -18,6 +18,12 @@ lint: check-format
 security:
 	bandit -q -r src
 	pip-audit
+
+security-deps:
+	safety check
+
+security-secrets:
+	detect-secrets scan --baseline .secrets.baseline
 
 test:
 	pytest
