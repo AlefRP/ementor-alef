@@ -30,8 +30,8 @@ lint: check-format
 
 # ---- Segurança ----
 security:
-	bandit -q -r src
-	pip-audit
+	pip-audit --skip-editable
+	bandit -r src -f json
 
 security-deps:
 	safety check
