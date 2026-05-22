@@ -1,0 +1,14 @@
+# Normaliza fim de linha: LF no repositório e no working tree (CI roda em Linux).
+* text=auto eol=lf
+
+# Arquivos sensíveis a TAB/EOL.
+Makefile text eol=lf
+*.tf     text eol=lf
+*.py     text eol=lf
+*.sh     text eol=lf
+
+# Binários (nunca normalizar).
+*.png binary
+*.jpg binary
+*.gz  binary
+*.zip binary

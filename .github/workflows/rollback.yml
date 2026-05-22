@@ -1,0 +1,56 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to roll back"
+        required: true
+        type: choice
+        options:
+          - prod
+        default: prod
+      target_ref:
+        description: "Git tag or commit SHA to roll back to"
+        required: true
+        type: string
+      reason:
+        description: "Reason for the rollback (for audit/log)"
+        required: false
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/${{ inputs.environment }}
+
+    steps:
+      - name: Checkout target ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_ref }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan (rollback)
+        run: terraform plan -no-color
+
+      # TODO: review the plan above before enabling the apply step below.
+      # - name: Terraform Apply (rollback)
+      #   run: terraform apply -auto-approve

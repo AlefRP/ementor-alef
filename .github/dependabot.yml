@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: terraform
+    directory: /infra/terraform/environments/prod
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "infra"
