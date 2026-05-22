@@ -86,9 +86,14 @@ Configurada com GitHub Actions e SonarCloud (gratuito para repositorios publicos
 
 ### Arquivos da esteira
 
-- `.github/workflows/ci.yml` — format, lint, seguranca, testes e terraform plan
+- `.github/workflows/ci.yml` — lint, seguranca, testes (matrix Python 3.11/3.12/3.13) e terraform plan/checks contra a AWS
 - `.github/workflows/sonar.yml` — cobertura + scan SonarCloud
+- `.github/workflows/rollback.yml` — rollback manual do ambiente prod
+- `.github/dependabot.yml` — atualizacao automatica de GitHub Actions, dependencias pip e modulos Terraform
+- `.pre-commit-config.yaml` — hooks locais que espelham os gates (blue, isort, bandit, detect-secrets, terraform fmt)
 - `sonar-project.properties` — configuracao do projeto no SonarCloud
+
+O CI publica artefatos por execucao: relatorios de cobertura (XML + HTML), resultados JUnit por versao de Python, relatorios de seguranca em SARIF (aba Security > Code scanning) e o `terraform plan` (trilha de auditoria).
 
 ### Secrets necessarios no repositorio GitHub
 
@@ -116,7 +121,7 @@ A estrutura abaixo mostra os diretorios existentes (com `.gitkeep`) e os subdire
 |-- infra/
 |   `-- terraform/
 |       `-- environments/
-|           `-- dev/          ← IaC do ambiente de desenvolvimento
+|           `-- prod/          ← IaC do ambiente de producao
 |-- src/
 |   |-- cold/                 ← camada fria
 |   |   |-- api_fastapi/      ← a criar: FastAPI + Dockerfile
@@ -149,9 +154,12 @@ A estrutura abaixo mostra os diretorios existentes (com `.gitkeep`) e os subdire
 python -m venv .venv && source .venv/bin/activate
 
 # 2. Instalar dependencias de desenvolvimento
-pip install -e .[dev]
+pip install -e .[prod]
 
-# 3. Validar qualidade antes de qualquer commit
+# 3. Instalar os hooks de pre-commit (espelham os gates do CI)
+make install-hooks
+
+# 4. Validar qualidade antes de qualquer commit
 make check-format
 make lint
 make security

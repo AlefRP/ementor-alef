@@ -10,6 +10,13 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+coverage.xml
+junit*.xml
+
+# CI / relatórios
+*.sarif
+plan.txt
+tfplan
 
 # IDE/OS
 .vscode/
@@ -21,6 +28,9 @@ htmlcov/
 *.tfstate
 *.tfstate.*
 crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
 
 # Sonar
 .scannerwork/

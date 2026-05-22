@@ -1,0 +1,40 @@
+# Hooks locais que espelham os gates do CI. Instale com: make install-hooks
+# Mantenha as revisões alinhadas ao pyproject.toml; atualize com: pre-commit autoupdate
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/grantjenks/blue
+    rev: v0.9.1
+    hooks:
+      - id: blue
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml", "-r", "src"]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
