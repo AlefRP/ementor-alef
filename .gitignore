@@ -21,7 +21,6 @@ tfplan
 # IDE/OS
 .vscode/
 .DS_Store
-.claude/
 
 # Terraform
 .terraform/
