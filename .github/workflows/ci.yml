@@ -146,10 +146,8 @@ jobs:
       AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
       TF_ENV: ${{ vars.TF_ENV || 'prod' }}
 
-    defaults:
-      run:
-        working-directory: infra/terraform/environments/${{ env.TF_ENV }}
-
+    # Todos os passos chamam alvos do Makefile (fonte única dos comandos —
+    # o que roda aqui é o mesmo que roda local).
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -168,26 +166,21 @@ jobs:
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
 
-      # fmt e checkov varrem a árvore inteira (modules/ + environments/ + bootstrap/),
-      # não só o ambiente alvo — módulo fora do padrão quebra aqui.
+      # fmt e checkov varrem a árvore inteira (modules/ + environments/ +
+      # bootstrap/) — módulo fora do padrão quebra aqui.
       - name: Terraform fmt check
-        working-directory: infra/terraform
-        run: terraform fmt -check -recursive
+        run: make tf-fmt-check
 
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Validate
-        run: terraform validate
+      - name: Terraform Validate (sem backend)
+        run: make tf-validate
 
       - name: TFLint
-        run: tflint
+        run: make tf-lint
 
       - name: Checkov (segurança de IaC)
-        working-directory: infra/terraform
         run: |
           pip install "checkov>=3.2,<4"
-          checkov -d . --quiet --compact --output cli --output sarif --output-file-path console,.
+          make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform'
 
       - name: Upload Checkov SARIF
         if: always()
@@ -201,9 +194,7 @@ jobs:
       # STS, validando credenciais e conectividade reais. O plan é salvo como
       # artefato (trilha de auditoria do que seria aplicado).
       - name: Terraform Plan (integração com AWS)
-        run: |
-          terraform plan -no-color -out=tfplan
-          terraform show -no-color tfplan > plan.txt
+        run: make tf-plan-out
 
       - name: Upload Terraform plan
         if: always()

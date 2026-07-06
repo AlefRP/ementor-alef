@@ -1,0 +1,85 @@
+name: Destroy environment
+
+# Teardown manual da infra de um ambiente (espelha `make tf-destroy` local).
+# Proteções: confirmação digitada (nome do ambiente), environment com possível
+# aprovação manual, plan de destruição salvo como auditoria antes de executar.
+# O bucket de state (bootstrap) NÃO é tocado — vive em state próprio com
+# prevent_destroy.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente a destruir"
+        required: true
+        type: choice
+        options:
+          - prod
+        default: prod
+      confirm:
+        description: "Digite o nome do ambiente para confirmar (ex.: prod)"
+        required: true
+        type: string
+      force:
+        description: "Esvaziar buckets raw/silver com dados (force_destroy)"
+        required: true
+        type: boolean
+        default: false
+      reason:
+        description: "Motivo do teardown (auditoria)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Mesmo grupo do rollback: operações de state nunca rodam em paralelo.
+concurrency:
+  group: terraform-state-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      TF_ENV: ${{ inputs.environment }}
+      # FORCE=1 vira -var=force_destroy=true no alvo tf-plan-out do Makefile.
+      FORCE: ${{ inputs.force && '1' || '' }}
+
+    # Passos chamam alvos do Makefile (fonte única dos comandos).
+    steps:
+      # Trava humana: a confirmação digitada precisa bater com o ambiente.
+      - name: Verificar confirmação
+        run: |
+          if [ "${{ inputs.confirm }}" != "${{ inputs.environment }}" ]; then
+            echo "::error::Confirmação incorreta: digite '${{ inputs.environment }}' no campo confirm."
+            exit 1
+          fi
+          echo "Destroy de '${{ inputs.environment }}' confirmado por ${{ github.actor }}"
+          echo "Force (esvaziar buckets): ${{ inputs.force }}"
+          echo "Motivo: ${{ inputs.reason || 'não informado' }}"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Plan (destroy)
+        run: make tf-plan-out DESTROY=1
+
+      - name: Upload destroy plan (auditoria)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: destroy-plan-${{ inputs.environment }}-${{ github.run_id }}
+          path: infra/terraform/environments/${{ inputs.environment }}/plan.txt
+          if-no-files-found: ignore
+
+      # Executa exatamente o plan de destruição salvo acima.
+      - name: Terraform Destroy
+        run: make tf-apply-plan
