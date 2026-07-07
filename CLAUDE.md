@@ -25,7 +25,7 @@ make tf-destroy FORCE=1                # teardown total (FORCE esvazia buckets)
 
 ## Convenções
 
-- Python ≥ 3.11; **blue** (88 col, aspas duplas) + **isort** (profile black). Testes: `test_<unidade>_<cenario>`.
+- Python ≥ 3.11; **blue** (88 col, aspas **simples**; duplas só em docstrings) + **isort** (profile black). Testes: `test_<unidade>_<cenario>`.
 - Paths S3 sempre particionados `year/month/day`. Logging estruturado JSON, nunca `print`.
 - Sem credenciais/segredos no código — IAM roles + env vars. IAM sempre least-privilege (nunca `Action:"*"`).
 - Terraform: módulos em `modules/`, composição em `environments/`; **nunca rode `terraform apply`** (apply é manual; a esteira só faz plan).
