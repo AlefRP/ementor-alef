@@ -14,10 +14,10 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 
 ---
 
-## 2026-07-06 · tool · Write em arquivo existente sem Read prévio
-- Sintoma: `Write` falhou em `.claude/agents/data-engineer.md` ("File has not been read yet").
-- Causa raiz: o arquivo já existia (criado em passo anterior da própria sessão); Write exige Read antes de sobrescrever.
-- Regra: antes de Write em caminho que PODE existir, rodar Glob/Read; se já existir e estiver bom, não reescrever.
+## 2026-07-06 · tool · Write/Edit em arquivo existente sem Read prévio [recorrente 2x]
+- Sintoma: `Write` falhou em `.claude/agents/data-engineer.md`; depois `Edit` falhou em `CLAUDE.md` ("File has not been read yet").
+- Causa raiz: Write E Edit exigem Read na sessão antes de tocar arquivo existente — inclusive CLAUDE.md, que vem no contexto mas não conta como "lido".
+- Regra: SEMPRE Read (tool) antes de Write/Edit em arquivo existente; conteúdo injetado no system prompt não satisfaz o requisito.
 
 ## 2026-07-06 · tool · Arquivo mudou entre Read e Edit
 - Sintoma: `Edit` em `.claude/settings.json` falhou ("File has been modified since read").
@@ -53,6 +53,16 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: `aws_lakeformation_permissions` falhou com `AccessDeniedException` mesmo com credencial root.
 - Causa raiz: só administradores do data lake concedem permissões; a AWS não aceita root como admin do Lake Formation.
 - Regra: criar `aws_lakeformation_data_lake_settings` com o caller como admin + `depends_on` nas permissions; aplicar sempre com IAM user/role, nunca root.
+
+## 2026-07-07 · python · blue exige aspas simples (CLAUDE.md dizia o contrário)
+- Sintoma: `make check-format` quebrou no CI — blue reformataria os 3 arquivos de `tests/taac/` (aspas duplas → simples).
+- Causa raiz: blue é black + aspas SIMPLES (duplas só em docstrings); o CLAUDE.md documentava "aspas duplas" e o código novo seguiu a doc.
+- Regra: código Python novo com aspas simples; rodar `make format` antes de commitar; doc corrigida no CLAUDE.md.
+
+## 2026-07-07 · ci · sonar.projectKey/organization inventados quebram o scan
+- Sintoma: SonarCloud falhou com "Not authorized or project not found" (binding NONEXISTENT).
+- Causa raiz: `sonar-project.properties` com projectKey/organization que não existem no SonarCloud; as chaves devem ser copiadas do produto.
+- Regra: copiar Project Key e Organization Key da tela Information do projeto; dá para validar sem login via `api/components/search_projects` (projetos públicos).
 
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).

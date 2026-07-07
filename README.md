@@ -1,4 +1,4 @@
-# Projeto Base - Arquitetura AWS Lakehouse (Mentoria)
+# Projeto Base - Arquitetura AWS Lakehouse (Mentoria).
 
 Este repositorio contem a estrutura inicial para um projeto de lakehouse na AWS, com separacao entre camada fria, camada quente, camada de consumo, governanca e esteira de dados via GitHub Actions.
 
@@ -96,7 +96,8 @@ a esteira **só executa `terraform plan`** — o apply é sempre manual
 
 - `.github/workflows/ci.yml` — lint, seguranca, testes (matrix Python 3.11/3.12/3.13) e terraform plan/checks contra a AWS
 - `.github/workflows/sonar.yml` — cobertura + scan SonarCloud
-- `.github/workflows/rollback.yml` — rollback manual do ambiente prod
+- `.github/workflows/rollback.yml` — rollback manual (checkout de tag/SHA antigo; modo `plan` para simular ou `apply` para executar; plan salvo como artefato de auditoria)
+- `.github/workflows/destroy.yml` — teardown manual do ambiente (confirmacao digitada + opcao `force` para esvaziar buckets; preserva o bucket de state)
 - `.github/dependabot.yml` — atualizacao automatica de GitHub Actions, dependencias pip e modulos Terraform
 - `.pre-commit-config.yaml` — hooks locais que espelham os gates (blue, isort, bandit, detect-secrets, terraform fmt)
 - `sonar-project.properties` — configuracao do projeto no SonarCloud

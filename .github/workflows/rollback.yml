@@ -1,23 +1,42 @@
 name: Rollback
 
+# Rollback manual da infra: faz checkout de um ref antigo (tag/SHA) e aplica
+# aquela configuração sobre o state remoto. Único ponto da esteira autorizado
+# a rodar apply — sempre disparado por humano, com plan salvo como auditoria.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Target environment to roll back"
+        description: "Ambiente alvo do rollback"
         required: true
         type: choice
         options:
           - prod
         default: prod
       target_ref:
-        description: "Git tag or commit SHA to roll back to"
+        description: "Tag ou SHA do commit para o qual voltar"
         required: true
         type: string
+      mode:
+        description: "plan = só mostra o que mudaria; apply = executa o rollback"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: plan
       reason:
-        description: "Reason for the rollback (for audit/log)"
+        description: "Motivo do rollback (auditoria)"
         required: false
         type: string
+
+permissions:
+  contents: read
+
+# Serializa operações que tocam o state (rollback/destroy não rodam juntos).
+concurrency:
+  group: terraform-state-${{ inputs.environment }}
+  cancel-in-progress: false
 
 jobs:
   rollback:
@@ -28,12 +47,18 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      TF_ENV: ${{ inputs.environment }}
 
-    defaults:
-      run:
-        working-directory: infra/terraform/environments/${{ inputs.environment }}
-
+    # Passos chamam alvos do Makefile (fonte única dos comandos). Atenção:
+    # o checkout do target_ref traz o Makefile daquela época — rollbacks só
+    # funcionam para refs que já contêm os alvos tf-plan-out/tf-apply-plan.
     steps:
+      - name: Log da operação (auditoria)
+        run: |
+          echo "Rollback de '${{ inputs.environment }}' para '${{ inputs.target_ref }}'"
+          echo "Modo: ${{ inputs.mode }} | Ator: ${{ github.actor }}"
+          echo "Motivo: ${{ inputs.reason || 'não informado' }}"
+
       - name: Checkout target ref
         uses: actions/checkout@v6
         with:
@@ -42,15 +67,18 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
 
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Validate
-        run: terraform validate
-
       - name: Terraform Plan (rollback)
-        run: terraform plan -no-color
+        run: make tf-plan-out
 
-      # TODO: review the plan above before enabling the apply step below.
-      # - name: Terraform Apply (rollback)
-      #   run: terraform apply -auto-approve
+      - name: Upload rollback plan (auditoria)
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: rollback-plan-${{ inputs.environment }}-${{ github.run_id }}
+          path: infra/terraform/environments/${{ inputs.environment }}/plan.txt
+          if-no-files-found: ignore
+
+      # Aplica exatamente o plan salvo acima (sem re-planejar entre plan e apply).
+      - name: Terraform Apply (rollback)
+        if: inputs.mode == 'apply'
+        run: make tf-apply-plan
