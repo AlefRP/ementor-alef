@@ -59,6 +59,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: blue é black + aspas SIMPLES (duplas só em docstrings); o CLAUDE.md documentava "aspas duplas" e o código novo seguiu a doc.
 - Regra: código Python novo com aspas simples; rodar `make format` antes de commitar; doc corrigida no CLAUDE.md.
 
+## 2026-07-07 · ci · Bump de action sem checar o runtime declarado na tag
+- Sintoma: warning de Node 20 deprecado persistiu após bump do upload-artifact v4→v5.
+- Causa raiz: assumi que o major novo rodava node24; o v5 ainda declara `runs.using: node20` (node24 só a partir do v6).
+- Regra: antes de fixar versão de action, checar `runs.using` no action.yml da tag (`raw.githubusercontent.com/<owner>/<repo>/<tag>/action.yml`) e as release notes do major.
+
 ## 2026-07-07 · ci · sonar.projectKey/organization inventados quebram o scan
 - Sintoma: SonarCloud falhou com "Not authorized or project not found" (binding NONEXISTENT).
 - Causa raiz: `sonar-project.properties` com projectKey/organization que não existem no SonarCloud; as chaves devem ser copiadas do produto.
