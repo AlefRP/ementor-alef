@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: ["main", "master", "feature/**"]
+    branches: ["main", "master", "feature/**", "chore/**", "fix/**", "docs/**"]
+  # Critério da story: pipeline roda em todo PR para a main (quality gates;
+  # o job terraform fica de fora de PRs para não expor secrets a forks).
+  pull_request:
+    branches: ["main", "master"]
   workflow_dispatch:
 
 concurrency:
@@ -110,6 +114,11 @@ jobs:
           --junitxml=junit-${{ matrix.python-version }}.xml
           --cov=src --cov-report=xml --cov-report=html
 
+      # Gate explícito de arquitetura: estáticos validam o HCL sem AWS;
+      # os live pulam sem credenciais (skip gracioso, não quebra a matrix).
+      - name: Architecture tests (TAAC)
+        run: make test-taac
+
       - name: Upload test artifacts (py${{ matrix.python-version }})
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,7 +133,11 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     environment: prod
-    if: startsWith(github.ref, 'refs/heads/feature/')
+    # Só em push de branches de trabalho (nunca em PR: secrets protegidos de forks).
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/heads/feature/') ||
+       startsWith(github.ref, 'refs/heads/chore/'))
     needs: [lint, security, test]
 
     env:
@@ -155,7 +168,10 @@ jobs:
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
 
+      # fmt e checkov varrem a árvore inteira (modules/ + environments/ + bootstrap/),
+      # não só o ambiente alvo — módulo fora do padrão quebra aqui.
       - name: Terraform fmt check
+        working-directory: infra/terraform
         run: terraform fmt -check -recursive
 
       - name: Terraform Init
@@ -168,6 +184,7 @@ jobs:
         run: tflint
 
       - name: Checkov (segurança de IaC)
+        working-directory: infra/terraform
         run: |
           pip install "checkov>=3.2,<4"
           checkov -d . --quiet --compact --output cli --output sarif --output-file-path console,.
@@ -177,7 +194,7 @@ jobs:
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: infra/terraform/environments/${{ env.TF_ENV }}/results_sarif.sarif
+          sarif_file: infra/terraform/results_sarif.sarif
           category: checkov
 
       # Teste de integração com a AWS: o plan autentica e consulta a conta via
@@ -195,5 +212,5 @@ jobs:
           name: terraform-plan
           path: |
             infra/terraform/environments/${{ env.TF_ENV }}/plan.txt
-            infra/terraform/environments/${{ env.TF_ENV }}/results_sarif.sarif
+            infra/terraform/results_sarif.sarif
           if-no-files-found: ignore

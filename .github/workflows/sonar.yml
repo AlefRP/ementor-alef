@@ -34,8 +34,13 @@ jobs:
       - name: Run tests with coverage
         run: make test-cov
 
+      # Gate da story: o job FALHA se o Quality Gate do SonarCloud reprovar.
+      # O threshold (cobertura >= 80%) é configurado no Quality Gate do projeto
+      # no SonarCloud (Administration > Quality Gate).
       - name: Sonar scan
         uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          args: -Dsonar.qualitygate.wait=true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io

@@ -1,11 +1,14 @@
 # Ambiente Terraform alvo (sobrescreva com: make tf-plan TF_ENV=prod)
 TF_ENV ?= prod
 TF_DIR := infra/terraform/environments/$(TF_ENV)
+TF_BOOTSTRAP := infra/terraform/bootstrap
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov \
-        tf-fmt tf-fmt-check tf-validate tf-lint tf-security tf-plan \
+        tf-bootstrap-plan tf-bootstrap-apply \
+        tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
+        tf-init tf-plan tf-apply tf-output tf-destroy \
         quality ci
 
 # ---- Setup ----
@@ -60,6 +63,16 @@ test-cov:
 	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
 
 # ---- Infraestrutura (Terraform) ----
+# Bootstrap do state remoto: apply ÚNICO com state local (cria o bucket que os
+# ambientes usam como backend). Rode antes do primeiro tf-init/tf-plan.
+tf-bootstrap-plan:
+	terraform -chdir=$(TF_BOOTSTRAP) init
+	terraform -chdir=$(TF_BOOTSTRAP) plan
+
+tf-bootstrap-apply:
+	terraform -chdir=$(TF_BOOTSTRAP) init
+	terraform -chdir=$(TF_BOOTSTRAP) apply
+
 tf-fmt:
 	terraform -chdir=$(TF_DIR) fmt -recursive
 
@@ -76,9 +89,27 @@ tf-lint:
 tf-security:
 	checkov -d $(TF_DIR)
 
+tf-init:
+	terraform -chdir=$(TF_DIR) init
+
 tf-plan:
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) plan -no-color
+
+# Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
+tf-apply:
+	terraform -chdir=$(TF_DIR) init
+	terraform -chdir=$(TF_DIR) apply
+
+tf-output:
+	terraform -chdir=$(TF_DIR) output
+
+# Destroi TODA a infra do ambiente (terraform pede confirmação digitando "yes").
+# Buckets com dados exigem FORCE=1 (esvazia raw/silver antes de destruir).
+# O bucket de state (bootstrap) fica de pé por design (prevent_destroy).
+tf-destroy:
+	terraform -chdir=$(TF_DIR) init
+	terraform -chdir=$(TF_DIR) destroy $(if $(FORCE),-var="force_destroy=true")
 
 # ---- Agregados ----
 quality: check-format lint security test

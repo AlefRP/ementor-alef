@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Edit(/.claude/skills/terraform-aws-module/**)",
+      "Edit(/.claude/skills/lakehouse-governance/**)",
+      "Edit(/.claude/skills/glue-iceberg-job/**)",
+      "Edit(/.claude/skills/aws-lambda-ingestion/**)"
+    ]
+  }
+}

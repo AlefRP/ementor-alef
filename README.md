@@ -69,9 +69,16 @@ Configurada com GitHub Actions e SonarCloud (gratuito para repositorios publicos
 
 | Evento | Quality & Tests | Terraform Plan | SonarCloud |
 |---|:---:|:---:|:---:|
-| `push` em `feature/**` | ✅ | ✅ (apos quality) | ❌ |
-| PR aberto → `main`/`master` | ✅ | ❌ | ✅ |
-| `push` em `main`/`master` | ✅ | ❌ | ✅ |
+| `push` em `feature/**` ou `chore/**` | ✅ | ✅ (apos quality) | ❌ |
+| `push` em `fix/**` ou `docs/**` | ✅ | ❌ | ❌ |
+| PR aberto → `main`/`master` | ✅ | ❌ | ✅ (Quality Gate bloqueia) |
+| `push` em `main`/`master` | ✅ | ❌ | ✅ (Quality Gate bloqueia) |
+
+O job de Terraform nunca roda em pull request (protege os secrets de forks) e
+a esteira **só executa `terraform plan`** — o apply é sempre manual
+(`make tf-apply`). O SonarCloud aguarda o Quality Gate
+(`sonar.qualitygate.wait`): reprova se a cobertura ficar abaixo de **80%**
+(threshold configurado no Quality Gate do projeto no SonarCloud).
 
 ### Gates de qualidade
 
@@ -81,8 +88,9 @@ Configurada com GitHub Actions e SonarCloud (gratuito para repositorios publicos
 | Compilacao | python -m compileall |
 | Seguranca | bandit + pip-audit |
 | Testes | pytest (unit / integration / TAAC) |
-| Infraestrutura | terraform validate + terraform plan |
-| Qualidade de codigo | SonarCloud |
+| Arquitetura (TAAC) | pytest -m taac (estatico sobre HCL + live via boto3) |
+| Infraestrutura | terraform fmt/validate + tflint + checkov (arvore inteira) + plan |
+| Qualidade de codigo | SonarCloud (Quality Gate com cobertura >= 80%) |
 
 ### Arquivos da esteira
 
@@ -97,12 +105,16 @@ O CI publica artefatos por execucao: relatorios de cobertura (XML + HTML), resul
 
 ### Secrets necessarios no repositorio GitHub
 
-| Secret | Usado em |
-|---|---|
-| `SONAR_TOKEN` | sonar.yml |
-| `AWS_ACCESS_KEY_ID` | ci.yml (terraform-plan) |
-| `AWS_SECRET_ACCESS_KEY` | ci.yml (terraform-plan) |
-| `AWS_DEFAULT_REGION` | ci.yml (terraform-plan) |
+| Configuracao | Tipo | Usado em |
+|---|---|---|
+| `SONAR_TOKEN` | Secret | sonar.yml |
+| `AWS_ACCESS_KEY_ID` | Secret | ci.yml (job terraform) + rollback.yml |
+| `AWS_SECRET_ACCESS_KEY` | Secret | ci.yml (job terraform) + rollback.yml |
+| `AWS_DEFAULT_REGION` | Variable (`sa-east-1`) | ci.yml (job terraform) + rollback.yml |
+
+Configure em Settings → Secrets and variables → Actions (ou no environment
+`prod`, que permite exigir aprovacao manual antes do job de Terraform). Use as
+credenciais de um IAM user dedicado (ex.: `github-actions`) — nunca do root.
 
 ---
 
