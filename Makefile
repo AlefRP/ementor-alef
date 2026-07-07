@@ -35,8 +35,10 @@ lint: check-format
 	python -m compileall src tests
 
 # ---- Segurança ----
+# Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
+# disponível sem trocar de formatador; dev-only, só formata código do repo.
 security:
-	pip-audit --skip-editable
+	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
 	bandit -r src -f json
 
 security-deps:
