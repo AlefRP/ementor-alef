@@ -59,6 +59,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: blue é black + aspas SIMPLES (duplas só em docstrings); o CLAUDE.md documentava "aspas duplas" e o código novo seguiu a doc.
 - Regra: código Python novo com aspas simples; rodar `make format` antes de commitar; doc corrigida no CLAUDE.md.
 
+## 2026-07-07 · ci · sonar.projectKey/organization inventados quebram o scan
+- Sintoma: SonarCloud falhou com "Not authorized or project not found" (binding NONEXISTENT).
+- Causa raiz: `sonar-project.properties` com projectKey/organization que não existem no SonarCloud; as chaves devem ser copiadas do produto.
+- Regra: copiar Project Key e Organization Key da tela Information do projeto; dá para validar sem login via `api/components/search_projects` (projetos públicos).
+
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.
