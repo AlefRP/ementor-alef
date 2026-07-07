@@ -6,7 +6,7 @@ from typing import Annotated
 import psycopg
 from fastapi import Header, HTTPException, Request, status
 
-from src.cold.api_fastapi.core.configs import get_settings
+from src.cold.api_orders.core.configs import get_settings
 
 
 async def get_connection(

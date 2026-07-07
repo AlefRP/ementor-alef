@@ -137,7 +137,7 @@ A estrutura abaixo mostra os diretorios existentes (com `.gitkeep`) e os subdire
 |           `-- prod/          ← IaC do ambiente de producao
 |-- src/
 |   |-- cold/                 ← camada fria
-|   |   |-- api_fastapi/      ← a criar: FastAPI + Dockerfile
+|   |   |-- api_orders/      ← a criar: FastAPI + Dockerfile
 |   |   |-- lambda_ingest/    ← a criar: handler.py + requirements.txt
 |   |   |-- glue_silver/      ← a criar: job.py + config
 |   |   `-- athena_gold/      ← a criar: DDL de views .sql

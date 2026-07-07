@@ -5,10 +5,10 @@ from unittest import mock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.cold.api_fastapi.core.configs import Settings, get_settings
-from src.cold.api_fastapi.core.database import create_pool, resolve_password
-from src.cold.api_fastapi.core.deps import get_connection
-from src.cold.api_fastapi.main import create_app
+from src.cold.api_orders.core.configs import Settings, get_settings
+from src.cold.api_orders.core.database import create_pool, resolve_password
+from src.cold.api_orders.core.deps import get_connection
+from src.cold.api_orders.main import create_app
 
 
 class FakeCursor:

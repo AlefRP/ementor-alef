@@ -10,9 +10,9 @@ from typing import Annotated
 import psycopg
 from fastapi import APIRouter, Depends, Query
 
-from src.cold.api_fastapi.core.configs import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from src.cold.api_fastapi.core.deps import get_connection
-from src.cold.api_fastapi.schemas.order_schema import Order, OrdersPage, PageCursor
+from src.cold.api_orders.core.configs import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from src.cold.api_orders.core.deps import get_connection
+from src.cold.api_orders.schemas.order_schema import Order, OrdersPage, PageCursor
 
 router = APIRouter()
 

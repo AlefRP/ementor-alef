@@ -14,12 +14,12 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
-from src.cold.api_fastapi.api.v1.api import api_router
-from src.cold.api_fastapi.core.configs import get_settings
-from src.cold.api_fastapi.core.database import create_pool
-from src.cold.api_fastapi.core.deps import require_token
+from src.cold.api_orders.api.v1.api import api_router
+from src.cold.api_orders.core.configs import get_settings
+from src.cold.api_orders.core.database import create_pool
+from src.cold.api_orders.core.deps import require_token
 
-logger = logging.getLogger('api_fastapi')
+logger = logging.getLogger('api_orders')
 logger.setLevel(logging.INFO)
 
 

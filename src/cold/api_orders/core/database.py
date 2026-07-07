@@ -4,7 +4,7 @@ import json
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from src.cold.api_fastapi.core.configs import Settings
+from src.cold.api_orders.core.configs import Settings
 
 
 def resolve_password(settings: Settings) -> str:
