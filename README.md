@@ -1,4 +1,4 @@
-# Projeto Base - Arquitetura AWS Lakehouse (Mentoria)
+# Projeto Base - Arquitetura AWS Lakehouse (Mentoria).
 
 Este repositorio contem a estrutura inicial para um projeto de lakehouse na AWS, com separacao entre camada fria, camada quente, camada de consumo, governanca e esteira de dados via GitHub Actions.
 
