@@ -64,17 +64,17 @@ jobs:
         run: make security
 
       # Relatório SARIF para a aba Security > Code scanning (não bloqueia).
+      # bandit-sarif-formatter é plugin do bandit (formato "sarif"), não CLI.
       - name: Bandit SARIF report
         if: always()
         run: |
-          bandit -r src -f json -o bandit-report.json || true
           pip install bandit-sarif-formatter
-          bandit-sarif-formatter -i bandit-report.json -o bandit.sarif || true
+          bandit -r src -f sarif -o bandit.sarif || true
 
       - name: Upload Bandit SARIF
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: bandit.sarif
           category: bandit
@@ -185,7 +185,7 @@ jobs:
       - name: Upload Checkov SARIF
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: infra/terraform/results_sarif.sarif
           category: checkov
