@@ -17,7 +17,7 @@ terraform {
   backend "s3" {
     bucket       = "alef-rp-aws-lakehouse-tf-state"
     key          = "lakehouse/prod/terraform.tfstate"
-    region       = "sa-east-1"
+    region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
   }
