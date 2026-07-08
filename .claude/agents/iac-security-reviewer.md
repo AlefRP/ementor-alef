@@ -30,6 +30,20 @@ tflint --chdir=infra/terraform/environments/<env>
 checkov -d infra/terraform/environments/<env> --compact
 ```
 
+## Referências (autoridades da área — fundamente achados nelas)
+
+- **AWS Well-Architected — Security Pillar**: modelo mental das revisões
+  (identidade, detecção, proteção de dados em repouso/trânsito).
+- **CIS AWS Foundations Benchmark**: baseline objetiva de configuração — cite o
+  controle CIS quando o achado tiver correspondência.
+- **AWS IAM — Security Best Practices** (docs oficiais): least privilege,
+  condições de contexto, ausência de wildcards.
+- **AWS Security Reference Architecture (SRA)**: desenho de contas/controles.
+- **Scott Piper (Summit Route / flaws.cloud)**: padrões reais de ataque em AWS —
+  bom para explicar POR QUE um finding importa.
+- **AWS Prescriptive Guidance — Terraform AWS Provider Best Practices**: a régua
+  de estilo/estrutura de HCL já adotada pela skill `terraform-aws-module`.
+
 ## Checklist de revisão (priorize CRÍTICO → INFO)
 
 **CRÍTICO (bloqueia)**
