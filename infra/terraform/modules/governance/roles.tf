@@ -110,6 +110,55 @@ resource "aws_iam_role_policy_attachment" "lambda_hot_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# A Lambda quente também roda na VPC (S3 via gateway endpoint).
+resource "aws_iam_role_policy_attachment" "lambda_hot_vpc" {
+  role       = aws_iam_role.lambda_ingest_hot.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# ---------- Lambda (camada quente: EventBridge -> producer -> SQS) ----------
+# Producer de eventos sintéticos: roda FORA da VPC (o SQS não tem gateway
+# endpoint gratuito) e só pode publicar na fila de eventos.
+resource "aws_iam_role" "lambda_event_producer" {
+  name               = "${var.prefix}-lambda-event-producer"
+  description        = "Lambda produtora de eventos sinteticos - publica no SQS"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+
+  tags = var.tags
+}
+
+data "aws_iam_policy_document" "publish_events_only" {
+  statement {
+    sid       = "PublishEvents"
+    actions   = ["sqs:SendMessage"]
+    resources = [var.events_queue_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_producer_sqs" {
+  name   = "publish-events-only"
+  role   = aws_iam_role.lambda_event_producer.id
+  policy = data.aws_iam_policy_document.publish_events_only.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_producer_logs" {
+  role       = aws_iam_role.lambda_event_producer.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# X-Ray ativo nas três Lambdas (tracing_config Active exige estas permissões;
+# managed policy do serviço — dados continuam restritos pelas policies acima).
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  for_each = {
+    cold     = aws_iam_role.lambda_ingest_cold.name
+    hot      = aws_iam_role.lambda_ingest_hot.name
+    producer = aws_iam_role.lambda_event_producer.name
+  }
+
+  role       = each.value
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 # ---------- Glue (raw -> silver, Iceberg) ----------
 data "aws_iam_policy_document" "glue_assume" {
   statement {

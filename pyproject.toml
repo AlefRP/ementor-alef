@@ -31,7 +31,7 @@ test = [
   "pytest-cov==7.1.0",
   "boto3>=1.34,<2", # TAAC live (tests/taac) — skip gracioso sem credenciais
   "httpx==0.28.1", # TestClient do FastAPI
-  "moto[s3]==5.2.2", # mock de S3 nos testes da Lambda
+  "moto[s3,sqs]==5.2.2", # mock de S3/SQS nos testes das Lambdas
   "aws-lakehouse-mentoria[api]", # testes importam src/cold/api_fastapi
 ]
 # Conjunto completo de ferramentas de desenvolvimento (inclui [test] e [api]).

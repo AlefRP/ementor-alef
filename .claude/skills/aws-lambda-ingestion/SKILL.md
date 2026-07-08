@@ -78,7 +78,7 @@ def handler(event, context):
     # falha parcial: use ReportBatchItemFailures p/ reprocessar só o que falhou
 ```
 
-## Testes (obrigatório para o gate de cobertura ≥ 80%)
+## Testes (obrigatório para o gate de cobertura ≥ 90%)
 
 - Padrão `test_<unidade>_<cenario>` em `tests/unit/`.
 - Mocke S3/SQS com `moto` ou `unittest.mock`; nunca chame AWS real no unit.

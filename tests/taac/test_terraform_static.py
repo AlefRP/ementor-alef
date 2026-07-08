@@ -120,15 +120,38 @@ def test_execution_roles_exist_one_per_service(resources):
     assert expected <= roles, f'roles faltando: {expected - roles}'
 
 
-def test_lambda_ingest_runs_inside_vpc_with_single_concurrency(resources):
-    """Tráfego privado: Lambda na VPC e 1 execução por vez (marker)."""
+def test_every_lambda_caps_concurrency(resources):
+    """Custo/idempotência: toda Lambda declara reserved_concurrent_executions."""
     functions = _by_type(resources, 'aws_lambda_function')
-    assert functions, 'esperava a Lambda de ingestão fria'
+    assert functions, 'esperava as Lambdas de ingestão'
+    for fn in functions:
+        assert re.search(
+            r'reserved_concurrent_executions\s*=', fn.body
+        ), f'{fn.address}: sem limite de concorrência'
+
+
+def test_ingest_lambdas_run_inside_vpc(resources):
+    """Tráfego privado: Lambdas que tocam a raw rodam na VPC.
+
+    Exceção documentada: o producer (só fala com SQS, que não tem gateway
+    endpoint gratuito) roda fora da VPC.
+    """
+    functions = [
+        f for f in _by_type(resources, 'aws_lambda_function') if f.name != 'producer'
+    ]
+    assert functions, 'esperava as Lambdas de ingestão (fria e quente)'
     for fn in functions:
         assert 'vpc_config' in fn.body, f'{fn.address}: Lambda fora da VPC'
-        assert re.search(
-            r'reserved_concurrent_executions\s*=\s*1', fn.body
-        ), f'{fn.address}: sem reserved_concurrent_executions = 1'
+
+
+def test_sqs_mapping_reports_batch_item_failures(resources):
+    """Camada quente: reprocessamento granular por mensagem (não o lote)."""
+    mappings = _by_type(resources, 'aws_lambda_event_source_mapping')
+    assert mappings, 'esperava o event source mapping SQS -> ingestão'
+    for mapping in mappings:
+        assert (
+            'ReportBatchItemFailures' in mapping.body
+        ), f'{mapping.address}: sem ReportBatchItemFailures'
 
 
 def test_ec2_api_is_private_encrypted_and_imdsv2(resources):

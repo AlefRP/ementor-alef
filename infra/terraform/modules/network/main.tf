@@ -161,6 +161,26 @@ resource "aws_vpc_security_group_egress_rule" "lambda_to_s3" {
   ip_protocol       = "tcp"
 }
 
+# SG da Lambda de ingestão quente (SQS -> raw): o polling do SQS é feito pelo
+# serviço Lambda (fora da VPC); a função só precisa alcançar o S3.
+resource "aws_security_group" "lambda_hot" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (EC2/Lambda/RDS); o grafo do checkov nao cruza modulos
+  name        = "${var.prefix}-lambda-hot"
+  description = "Lambda de ingestao quente (VPC) - escreve no S3"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.prefix}-lambda-hot-sg" })
+}
+
+resource "aws_vpc_security_group_egress_rule" "lambda_hot_to_s3" {
+  security_group_id = aws_security_group.lambda_hot.id
+  description       = "HTTPS ao S3 via gateway endpoint"
+  prefix_list_id    = aws_vpc_endpoint.s3.prefix_list_id
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
 # A API só aceita a porta privada vinda do SG da Lambda (tráfego intra-VPC).
 resource "aws_vpc_security_group_ingress_rule" "api_from_lambda" {
   security_group_id            = aws_security_group.api.id

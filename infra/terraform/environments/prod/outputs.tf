@@ -38,6 +38,16 @@ output "ingest_cold_function" {
   value       = module.ingestion_cold.function_name
 }
 
+output "event_producer_function" {
+  description = "Lambda produtora de eventos sintéticos (camada quente)."
+  value       = module.ingestion_hot.producer_function_name
+}
+
+output "ingest_hot_function" {
+  description = "Lambda de ingestão quente (SQS -> raw)."
+  value       = module.ingestion_hot.ingest_function_name
+}
+
 output "execution_roles" {
   description = "Roles de execução criadas pela governança."
   value = {

@@ -28,6 +28,18 @@ variable "ingest_schedule" {
   default     = "rate(1 day)"
 }
 
+variable "hot_schedule" {
+  description = "Cadência do producer de eventos da camada quente."
+  type        = string
+  default     = "rate(1 minute)"
+}
+
+variable "hot_events_per_run" {
+  description = "Eventos sintéticos gerados por execução do producer."
+  type        = number
+  default     = 60
+}
+
 variable "force_destroy" {
   description = "Teardown: permite destruir buckets raw/silver mesmo com dados."
   type        = bool

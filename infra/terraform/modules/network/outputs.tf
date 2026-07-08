@@ -28,6 +28,11 @@ output "lambda_ingest_security_group_id" {
   value       = aws_security_group.lambda_ingest.id
 }
 
+output "lambda_hot_security_group_id" {
+  description = "SG da Lambda de ingestão quente (VPC)."
+  value       = aws_security_group.lambda_hot.id
+}
+
 output "s3_endpoint_prefix_list_id" {
   description = "Prefix list do gateway endpoint de S3."
   value       = aws_vpc_endpoint.s3.prefix_list_id

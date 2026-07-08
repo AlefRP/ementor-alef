@@ -91,3 +91,24 @@ module "ingestion_cold" {
   schedule_expression = var.ingest_schedule
   tags                = local.tags
 }
+
+# ---- Camada quente: producer agendado -> SQS -> Lambda -> raw ----
+module "ingestion_hot" {
+  source = "../../modules/hot_ingestion"
+
+  prefix            = local.prefix
+  producer_source   = "${path.module}/../../../../src/hot/event_producer/handler.py"
+  ingest_source     = "${path.module}/../../../../src/hot/lambda_raw_ingest/handler.py"
+  producer_role_arn = module.governance.lambda_event_producer_role_arn
+  ingest_role_arn   = module.governance.lambda_ingest_hot_role_arn
+
+  events_queue_url  = module.messaging.events_queue_url
+  events_queue_arn  = module.messaging.events_queue_arn
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.lambda_hot_security_group_id
+  raw_bucket        = module.storage.bucket_ids["raw"]
+
+  schedule_expression = var.hot_schedule
+  events_per_run      = var.hot_events_per_run
+  tags                = local.tags
+}

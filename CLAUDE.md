@@ -14,7 +14,7 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 
 ```bash
 make quality        # check-format + lint + security + test (gate local completo)
-make test-cov       # cobertura (gate SonarCloud: >= 80%)
+make test-cov       # cobertura (gate SonarCloud: >= 90%)
 make test-taac      # testes de arquitetura (TAAC)
 make tf-validate tf-lint tf-security   # gates Terraform sem AWS
 make tf-bootstrap-apply                # 1x: cria o bucket de state remoto

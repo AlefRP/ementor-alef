@@ -64,8 +64,10 @@ test-integration:
 test-taac:
 	pytest -m taac tests/taac
 
+# Gate local de cobertura (>= 90%) — espelhe o mesmo threshold no Quality
+# Gate do SonarCloud (Administration > Quality Gates).
 test-cov:
-	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
+	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing --cov-fail-under=90
 
 # ---- Deploy da API (bundle offline para a EC2 privada) ----
 # Gera build/api-bundle.tar.gz com wheelhouse/ (projeto + extras [api]).

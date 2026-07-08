@@ -13,6 +13,11 @@ output "lambda_ingest_hot_role_arn" {
   value       = aws_iam_role.lambda_ingest_hot.arn
 }
 
+output "lambda_event_producer_role_arn" {
+  description = "Role da Lambda produtora de eventos sintéticos."
+  value       = aws_iam_role.lambda_event_producer.arn
+}
+
 output "glue_job_role_arn" {
   description = "Role do job Glue raw->silver."
   value       = aws_iam_role.glue_job.arn
