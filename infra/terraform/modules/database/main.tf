@@ -28,6 +28,10 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [var.security_group_id]
   publicly_accessible    = false
 
+  # A API autentica com token IAM assinado localmente (sem Secrets Manager em
+  # runtime) — requisito da rede 100% privada sem endpoints pagos.
+  iam_database_authentication_enabled = true
+
   backup_retention_period    = var.backup_retention_days
   copy_tags_to_snapshot      = true
   auto_minor_version_upgrade = true

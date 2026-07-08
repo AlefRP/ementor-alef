@@ -28,6 +28,16 @@ output "database_master_secret_arn" {
   value       = module.database.master_user_secret_arn
 }
 
+output "api_cold_private_dns" {
+  description = "DNS privado da EC2 da API (consumido pela Lambda na VPC)."
+  value       = module.api_cold.private_dns
+}
+
+output "ingest_cold_function" {
+  description = "Lambda de ingestão fria (EventBridge -> API -> raw)."
+  value       = module.ingestion_cold.function_name
+}
+
 output "execution_roles" {
   description = "Roles de execução criadas pela governança."
   value = {

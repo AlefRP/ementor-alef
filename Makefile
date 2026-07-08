@@ -8,7 +8,7 @@ CHECKOV_ARGS ?=
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
-        test test-unit test-integration test-taac test-cov \
+        test test-unit test-integration test-taac test-cov api-bundle \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
         tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
@@ -35,8 +35,10 @@ lint: check-format
 	python -m compileall src tests
 
 # ---- Segurança ----
+# Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
+# disponível sem trocar de formatador; dev-only, só formata código do repo.
 security:
-	pip-audit --skip-editable
+	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
 	bandit -r src -f json
 
 security-deps:
@@ -64,6 +66,16 @@ test-taac:
 
 test-cov:
 	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
+
+# ---- Deploy da API (bundle offline para a EC2 privada) ----
+# Gera build/api-bundle.tar.gz com wheelhouse/ (projeto + extras [api]).
+# A esteira sobe para s3://<prefix>-artifacts/api/ e o user_data da EC2
+# instala com pip --no-index (rede 100% privada, via S3 gateway endpoint).
+api-bundle:
+	rm -rf build/api-bundle build/api-bundle.tar.gz
+	mkdir -p build/api-bundle/wheelhouse
+	pip wheel --wheel-dir build/api-bundle/wheelhouse ".[api]"
+	tar -czf build/api-bundle.tar.gz -C build/api-bundle wheelhouse
 
 # ---- Infraestrutura (Terraform) ----
 # Bootstrap do state remoto: apply ÚNICO com state local (cria o bucket que os

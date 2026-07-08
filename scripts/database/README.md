@@ -27,6 +27,14 @@ SECRET_ARN=$(terraform -chdir=infra/terraform/environments/prod output -raw data
 
 Requisitos no host: `bash`, `curl`, `psql`, `awscli` (ou exporte `PGPASSWORD`).
 
+## Usuário da API (IAM auth)
+
+Depois do seed, crie o usuário de leitura da API (token IAM, sem senha):
+
+```bash
+psql -v ON_ERROR_STOP=1 -f scripts/database/create_api_reader.sql
+```
+
 ## Tabelas (schema `olist`)
 
 `customers`, `sellers`, `products`, `orders`, `order_items`, `order_payments`,

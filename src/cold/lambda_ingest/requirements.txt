@@ -1,0 +1,2 @@
+# O runtime Python da AWS Lambda já fornece boto3/botocore; o handler usa
+# apenas stdlib além deles — nenhuma dependência extra para empacotar.

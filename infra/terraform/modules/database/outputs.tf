@@ -27,3 +27,13 @@ output "instance_arn" {
   description = "ARN da instância RDS."
   value       = aws_db_instance.this.arn
 }
+
+output "resource_id" {
+  description = "Resource id (dbi-*) usado no ARN de rds-db:connect (IAM auth)."
+  value       = aws_db_instance.this.resource_id
+}
+
+output "port" {
+  description = "Porta do PostgreSQL."
+  value       = aws_db_instance.this.port
+}

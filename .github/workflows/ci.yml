@@ -64,24 +64,24 @@ jobs:
         run: make security
 
       # Relatório SARIF para a aba Security > Code scanning (não bloqueia).
+      # bandit-sarif-formatter é plugin do bandit (formato "sarif"), não CLI.
       - name: Bandit SARIF report
         if: always()
         run: |
-          bandit -r src -f json -o bandit-report.json || true
           pip install bandit-sarif-formatter
-          bandit-sarif-formatter -i bandit-report.json -o bandit.sarif || true
+          bandit -r src -f sarif -o bandit.sarif || true
 
       - name: Upload Bandit SARIF
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: bandit.sarif
           category: bandit
 
       - name: Upload security reports
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: security-reports
           path: bandit.sarif
@@ -121,7 +121,7 @@ jobs:
 
       - name: Upload test artifacts (py${{ matrix.python-version }})
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports-py${{ matrix.python-version }}
           path: |
@@ -180,12 +180,12 @@ jobs:
       - name: Checkov (segurança de IaC)
         run: |
           pip install "checkov>=3.2,<4"
-          make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform'
+          make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform/results_sarif.sarif'
 
       - name: Upload Checkov SARIF
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: infra/terraform/results_sarif.sarif
           category: checkov
@@ -196,9 +196,22 @@ jobs:
       - name: Terraform Plan (integração com AWS)
         run: make tf-plan-out
 
+      # Bundle offline da API (wheelhouse) para a EC2 privada, entregue via
+      # S3 (gateway endpoint na VPC). Enquanto o apply manual não criar o
+      # bucket de artefatos, o passo avisa e segue.
+      - name: Build e upload do bundle da API
+        run: |
+          make api-bundle
+          BUCKET="${{ vars.ARTIFACTS_BUCKET || 'alef-rp-aws-lakehouse-prod-artifacts' }}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3 cp build/api-bundle.tar.gz "s3://$BUCKET/api/api-bundle.tar.gz"
+          else
+            echo "::warning::bucket $BUCKET ainda nao existe - rode make tf-apply e re-execute a esteira"
+          fi
+
       - name: Upload Terraform plan
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: terraform-plan
           path: |

@@ -15,9 +15,9 @@ resource "aws_s3_bucket" "layer" {
 
 # Critério de aceitação da story: Block Public Access ativo (4 flags) em todos.
 resource "aws_s3_bucket_public_access_block" "layer" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
-  bucket                  = each.value.id
+  bucket                  = aws_s3_bucket.layer[each.value].id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -25,9 +25,9 @@ resource "aws_s3_bucket_public_access_block" "layer" {
 }
 
 resource "aws_s3_bucket_versioning" "layer" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
-  bucket = each.value.id
+  bucket = aws_s3_bucket.layer[each.value].id
 
   versioning_configuration {
     status = "Enabled"
@@ -35,9 +35,9 @@ resource "aws_s3_bucket_versioning" "layer" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "layer" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
-  bucket = each.value.id
+  bucket = aws_s3_bucket.layer[each.value].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -49,9 +49,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "layer" {
 
 # Higiene: aborta multipart incompleto e expira versões antigas (custo).
 resource "aws_s3_bucket_lifecycle_configuration" "layer" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
-  bucket = each.value.id
+  bucket = aws_s3_bucket.layer[each.value].id
 
   rule {
     id     = "hygiene"
@@ -71,15 +71,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "layer" {
 
 # Criptografia em trânsito: nega qualquer acesso não-TLS.
 data "aws_iam_policy_document" "tls_only" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
   statement {
     sid     = "DenyInsecureTransport"
     effect  = "Deny"
     actions = ["s3:*"]
     resources = [
-      each.value.arn,
-      "${each.value.arn}/*",
+      aws_s3_bucket.layer[each.value].arn,
+      "${aws_s3_bucket.layer[each.value].arn}/*",
     ]
 
     principals {
@@ -96,9 +96,9 @@ data "aws_iam_policy_document" "tls_only" {
 }
 
 resource "aws_s3_bucket_policy" "tls_only" {
-  for_each = aws_s3_bucket.layer
+  for_each = var.layers
 
-  bucket = each.value.id
+  bucket = aws_s3_bucket.layer[each.value].id
   policy = data.aws_iam_policy_document.tls_only[each.key].json
 
   depends_on = [aws_s3_bucket_public_access_block.layer]

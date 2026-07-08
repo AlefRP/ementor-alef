@@ -48,7 +48,7 @@ if not os.environ.get("AWS_ACCESS_KEY_ID"):
 
 - Recurso ainda não aplicado (404/NoSuchEntity) → `pytest.skip("infra não aplicada")`,
   nunca falha — o teste vira gate real após o primeiro apply.
-- Nomes de recursos vêm do prefixo `ementor-lakehouse-prod` (variável de ambiente
+- Nomes de recursos vêm do prefixo `alef-rp-aws-lakehouse-prod` (variável de ambiente
   `TAAC_PREFIX` para sobrescrever).
 - Cheques live essenciais: BPA dos buckets via `s3.get_public_access_block`;
   SQS SSE via `get_queue_attributes`; RDS `PubliclyAccessible`/`StorageEncrypted`

@@ -6,14 +6,18 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
   # State remoto no bucket dedicado criado por infra/terraform/bootstrap
   # (apply único, manual). Lock nativo do S3 (>= 1.10), sem DynamoDB.
   backend "s3" {
-    bucket       = "ementor-alef-lakehouse-tf-state"
+    bucket       = "alef-rp-aws-lakehouse-tf-state"
     key          = "lakehouse/prod/terraform.tfstate"
-    region       = "sa-east-1"
+    region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
   }

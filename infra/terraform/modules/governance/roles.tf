@@ -49,6 +49,29 @@ resource "aws_iam_role_policy_attachment" "lambda_cold_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# A Lambda fria roda DENTRO da VPC (tráfego privado até a API/S3); a managed
+# policy concede a gestão de ENIs que o serviço exige nesse modo.
+resource "aws_iam_role_policy_attachment" "lambda_cold_vpc" {
+  role       = aws_iam_role.lambda_ingest_cold.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# O marker de retomada (_markers/<dataset>.json) é lido no início de cada
+# execução — GetObject restrito ao prefixo de markers, nada além.
+data "aws_iam_policy_document" "read_markers_only" {
+  statement {
+    sid       = "ReadIngestionMarkers"
+    actions   = ["s3:GetObject"]
+    resources = ["${var.raw_bucket_arn}/_markers/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_cold_markers" {
+  name   = "read-markers-only"
+  role   = aws_iam_role.lambda_ingest_cold.id
+  policy = data.aws_iam_policy_document.read_markers_only.json
+}
+
 # ---------- Lambda (camada quente: SQS -> raw) ----------
 resource "aws_iam_role" "lambda_ingest_hot" {
   name               = "${var.prefix}-lambda-ingest-hot"
@@ -153,11 +176,17 @@ data "aws_iam_policy_document" "ec2_assume" {
 
 resource "aws_iam_role" "ec2_api" {
   name               = "${var.prefix}-ec2-api"
-  description        = "EC2 das APIs - publica eventos no SQS e le o secret do RDS"
+  description        = "EC2 das APIs - SQS, IAM auth no RDS e bundle de deploy"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 
   tags = var.tags
 }
+
+# Rede 100% privada: a API autentica no RDS com token IAM (assinado localmente,
+# sem Secrets Manager) e baixa o bundle de deploy do bucket de artefatos via
+# gateway endpoint. Nada de segredo em runtime.
+# (data aws_caller_identity "current" já declarado em lakeformation.tf)
+data "aws_region" "current" {}
 
 data "aws_iam_policy_document" "ec2_api" {
   statement {
@@ -167,14 +196,22 @@ data "aws_iam_policy_document" "ec2_api" {
   }
 
   statement {
-    sid       = "ReadRdsMasterSecret"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.rds_master_secret_arn]
+    sid     = "ConnectAsApiReader"
+    actions = ["rds-db:connect"]
+    resources = [
+      "arn:aws:rds-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:dbuser:${var.rds_resource_id}/${var.api_db_user}"
+    ]
+  }
+
+  statement {
+    sid       = "ReadDeployBundle"
+    actions   = ["s3:GetObject"]
+    resources = ["${var.artifacts_bucket_arn}/api/*"]
   }
 }
 
 resource "aws_iam_role_policy" "ec2_api" {
-  name   = "publish-events-read-db-secret"
+  name   = "publish-events-iam-auth-deploy"
   role   = aws_iam_role.ec2_api.id
   policy = data.aws_iam_policy_document.ec2_api.json
 }

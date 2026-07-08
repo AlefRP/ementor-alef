@@ -118,3 +118,59 @@ def test_execution_roles_exist_one_per_service(resources):
     roles = {r.name for r in _by_type(resources, 'aws_iam_role')}
     expected = {'lambda_ingest_cold', 'lambda_ingest_hot', 'glue_job', 'ec2_api'}
     assert expected <= roles, f'roles faltando: {expected - roles}'
+
+
+def test_lambda_ingest_runs_inside_vpc_with_single_concurrency(resources):
+    """Tráfego privado: Lambda na VPC e 1 execução por vez (marker)."""
+    functions = _by_type(resources, 'aws_lambda_function')
+    assert functions, 'esperava a Lambda de ingestão fria'
+    for fn in functions:
+        assert 'vpc_config' in fn.body, f'{fn.address}: Lambda fora da VPC'
+        assert re.search(
+            r'reserved_concurrent_executions\s*=\s*1', fn.body
+        ), f'{fn.address}: sem reserved_concurrent_executions = 1'
+
+
+def test_ec2_api_is_private_encrypted_and_imdsv2(resources):
+    """Postura privada: EC2 sem IP público, EBS cifrado e IMDSv2."""
+    instances = _by_type(resources, 'aws_instance')
+    assert instances, 'esperava a EC2 da API fria'
+    for inst in instances:
+        assert re.search(
+            r'associate_public_ip_address\s*=\s*false', inst.body
+        ), f'{inst.address}: instância com IP público'
+        assert re.search(
+            r'http_tokens\s*=\s*"required"', inst.body
+        ), f'{inst.address}: IMDSv2 não obrigatório'
+        assert re.search(
+            r'encrypted\s*=\s*true', inst.body
+        ), f'{inst.address}: volume raiz sem criptografia'
+
+
+def test_s3_gateway_endpoint_exists(resources):
+    """Rede sem NAT: S3 alcançado por gateway endpoint (gratuito)."""
+    endpoints = _by_type(resources, 'aws_vpc_endpoint')
+    assert any(
+        re.search(r'vpc_endpoint_type\s*=\s*"Gateway"', e.body) and '.s3' in e.body
+        for e in endpoints
+    ), 'esperava aws_vpc_endpoint Gateway para o S3'
+
+
+def test_rds_uses_iam_authentication(resources):
+    """Sem segredo em runtime: RDS com IAM database authentication."""
+    for db in _by_type(resources, 'aws_db_instance'):
+        assert re.search(
+            r'iam_database_authentication_enabled\s*=\s*true', db.body
+        ), f'{db.address}: IAM auth desabilitado'
+
+
+def test_no_ingress_rule_open_to_internet(terraform_blocks):
+    """Nenhuma regra de ingress com 0.0.0.0/0 (workloads 100% privados)."""
+    rules = [
+        b for b in terraform_blocks if b.type == 'aws_vpc_security_group_ingress_rule'
+    ]
+    assert rules, 'esperava regras de ingress declaradas'
+    for rule in rules:
+        assert (
+            '0.0.0.0/0' not in rule.body
+        ), f'{rule.address}: ingress aberto à internet'

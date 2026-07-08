@@ -17,7 +17,7 @@ pytestmark = pytest.mark.taac
 if not (os.environ.get('AWS_ACCESS_KEY_ID') or os.environ.get('AWS_PROFILE')):
     pytest.skip('sem credenciais AWS no ambiente', allow_module_level=True)
 
-PREFIX = os.environ.get('TAAC_PREFIX', 'ementor-lakehouse-prod')
+PREFIX = os.environ.get('TAAC_PREFIX', 'alef-rp-aws-lakehouse-prod')
 
 
 def _skip_if_missing(error: ClientError, resource: str) -> None:
