@@ -1,12 +1,20 @@
 """Testes da API fria (data product Olist)."""
+import asyncio
 from datetime import datetime
 from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
+from psycopg_pool import AsyncConnectionPool
 
+from src.cold.api_orders.core import database
 from src.cold.api_orders.core.configs import Settings, get_settings
-from src.cold.api_orders.core.database import create_pool, resolve_password
+from src.cold.api_orders.core.database import (
+    IamAuthPool,
+    create_pool,
+    iam_auth_token,
+    resolve_password,
+)
 from src.cold.api_orders.core.deps import get_connection
 from src.cold.api_orders.main import create_app
 
@@ -193,3 +201,34 @@ def test_create_pool_is_closed_and_sized_from_settings():
     assert pool.min_size == 0
     assert pool.max_size == 3
     assert pool.closed
+
+
+def test_iam_auth_token_signs_locally():
+    settings = Settings(PGHOST='db.interno', PGPORT=5432, PGUSER='api_reader')
+    fake = mock.Mock()
+    fake.generate_db_auth_token.return_value = 'token-iam'
+    with mock.patch('boto3.client', return_value=fake):
+        assert iam_auth_token(settings) == 'token-iam'
+    fake.generate_db_auth_token.assert_called_once_with(
+        DBHostname='db.interno', Port=5432, DBUsername='api_reader'
+    )
+
+
+def test_create_pool_iam_mode_uses_tls_and_iam_pool():
+    settings = Settings(DB_AUTH='iam', POOL_MIN_SIZE=0)
+    pool = create_pool(settings)
+    assert isinstance(pool, IamAuthPool)
+    assert 'sslmode=require' in pool.conninfo
+
+
+def test_iam_pool_refreshes_token_on_each_connection(monkeypatch):
+    settings = Settings(DB_AUTH='iam', POOL_MIN_SIZE=0)
+    pool = create_pool(settings)
+    monkeypatch.setattr(database, 'iam_auth_token', lambda _: 'tok-novo')
+
+    async def fake_connect(self, timeout=None):
+        return 'conexao'
+
+    monkeypatch.setattr(AsyncConnectionPool, '_connect', fake_connect)
+    assert asyncio.run(pool._connect()) == 'conexao'
+    assert pool.kwargs['password'] == 'tok-novo'

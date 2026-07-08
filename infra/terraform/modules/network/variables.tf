@@ -25,10 +25,10 @@ variable "az_count" {
   }
 }
 
-variable "api_ingress_cidrs" {
-  description = "CIDRs autorizados a acessar a API na EC2 (porta 443)."
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
+variable "api_port" {
+  description = "Porta da API de data product na EC2 (tráfego privado da Lambda)."
+  type        = number
+  default     = 8000
 }
 
 variable "tags" {

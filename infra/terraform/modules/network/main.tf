@@ -1,7 +1,9 @@
-# Rede base do lakehouse: VPC com subnets públicas (EC2 das APIs) e privadas
-# (RDS). Sem NAT Gateway por decisão de custo — os serviços privados não saem
-# para a internet; Lambdas rodam fora da VPC (falam com S3/SQS por endpoint
-# público da AWS).
+# Rede base do lakehouse — postura 100% privada para os workloads: EC2 das
+# APIs, Lambdas e RDS ficam nas subnets privadas, sem IP público e sem NAT.
+# O S3 (dados, artefatos de deploy e repositórios do Amazon Linux) é alcançado
+# pelo gateway endpoint (gratuito); o RDS autentica por token IAM assinado
+# localmente. As subnets públicas ficam reservadas para recursos de borda
+# eventuais (ex.: bastion temporário) — nenhum workload roda nelas.
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -18,7 +20,7 @@ resource "aws_vpc" "this" {
   tags = merge(var.tags, { Name = "${var.prefix}-vpc" })
 }
 
-# Subnets públicas: hospedam as EC2 das APIs (fria e quente).
+# Subnets públicas: reservadas (borda); sem workloads por decisão de postura.
 resource "aws_subnet" "public" {
   count = var.az_count
 
@@ -30,7 +32,7 @@ resource "aws_subnet" "public" {
   tags = merge(var.tags, { Name = "${var.prefix}-public-${local.azs[count.index]}" })
 }
 
-# Subnets privadas: RDS (e futuros recursos sem exposição à internet).
+# Subnets privadas: RDS, EC2 das APIs e Lambdas (nada exposto à internet).
 resource "aws_subnet" "private" {
   count = var.az_count
 
@@ -87,8 +89,10 @@ resource "aws_default_security_group" "this" {
   tags = merge(var.tags, { Name = "${var.prefix}-default-sg-locked" })
 }
 
-# SG das EC2 de API: HTTPS de entrada, saída liberada (chamadas a S3/SQS/RDS).
+# SG das EC2 de API (privadas): entrada só da Lambda (regra adiante); saída
+# restrita ao S3 (gateway endpoint: dados, artefatos, repos AL2023) e ao RDS.
 resource "aws_security_group" "api" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (EC2/Lambda/RDS); o grafo do checkov nao cruza modulos
   name        = "${var.prefix}-api"
   description = "EC2 das APIs do lakehouse (fria e quente)"
   vpc_id      = aws_vpc.this.id
@@ -96,26 +100,80 @@ resource "aws_security_group" "api" {
   tags = merge(var.tags, { Name = "${var.prefix}-api-sg" })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "api_https" {
-  for_each = toset(var.api_ingress_cidrs)
-
+resource "aws_vpc_security_group_egress_rule" "api_to_s3" {
   security_group_id = aws_security_group.api.id
-  description       = "HTTPS para a API"
-  cidr_ipv4         = each.value
+  description       = "HTTPS ao S3 via gateway endpoint (dados/artefatos/repos)"
+  prefix_list_id    = aws_vpc_endpoint.s3.prefix_list_id
   from_port         = 443
   to_port           = 443
   ip_protocol       = "tcp"
 }
 
-resource "aws_vpc_security_group_egress_rule" "api_all" {
-  security_group_id = aws_security_group.api.id
-  description       = "Saida da API (AWS APIs, RDS)"
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+resource "aws_vpc_security_group_egress_rule" "api_to_database" {
+  security_group_id            = aws_security_group.api.id
+  description                  = "PostgreSQL no RDS"
+  referenced_security_group_id = aws_security_group.database.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+}
+
+# Gateway endpoint de S3 (sem custo): a Lambda de ingestão roda nas subnets
+# privadas (sem NAT) e alcança o S3 por aqui; nas públicas, mantém o tráfego
+# EC2 -> S3 no backbone da AWS.
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.this.id
+  service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
+
+  tags = merge(var.tags, { Name = "${var.prefix}-s3-endpoint" })
+}
+
+data "aws_region" "current" {}
+
+# SG da Lambda de ingestão fria: só sai para a API (porta privada) e para o
+# S3 via gateway endpoint. Nenhuma entrada.
+resource "aws_security_group" "lambda_ingest" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (EC2/Lambda/RDS); o grafo do checkov nao cruza modulos
+  name        = "${var.prefix}-lambda-ingest"
+  description = "Lambda de ingestao fria (VPC) - chama a API e escreve no S3"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.prefix}-lambda-ingest-sg" })
+}
+
+resource "aws_vpc_security_group_egress_rule" "lambda_to_api" {
+  security_group_id            = aws_security_group.lambda_ingest.id
+  description                  = "Chamada privada a API de data product"
+  referenced_security_group_id = aws_security_group.api.id
+  from_port                    = var.api_port
+  to_port                      = var.api_port
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "lambda_to_s3" {
+  security_group_id = aws_security_group.lambda_ingest.id
+  description       = "HTTPS ao S3 via gateway endpoint"
+  prefix_list_id    = aws_vpc_endpoint.s3.prefix_list_id
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
+# A API só aceita a porta privada vinda do SG da Lambda (tráfego intra-VPC).
+resource "aws_vpc_security_group_ingress_rule" "api_from_lambda" {
+  security_group_id            = aws_security_group.api.id
+  description                  = "API de data product a partir da Lambda de ingestao"
+  referenced_security_group_id = aws_security_group.lambda_ingest.id
+  from_port                    = var.api_port
+  to_port                      = var.api_port
+  ip_protocol                  = "tcp"
 }
 
 # SG do RDS: só aceita Postgres vindo do SG da API. Nada de CIDR aberto.
 resource "aws_security_group" "database" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (EC2/Lambda/RDS); o grafo do checkov nao cruza modulos
   name        = "${var.prefix}-database"
   description = "RDS PostgreSQL do lakehouse"
   vpc_id      = aws_vpc.this.id

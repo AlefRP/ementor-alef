@@ -1,0 +1,16 @@
+# Triagem de findings do checkov — decisões de custo × valor da mentoria,
+# todas documentadas. Reveja cada skip antes de promover para produção real.
+# Skips pontuais de recurso ficam inline (#checkov:skip=...) nos módulos.
+skip-check:
+  # S3 — hardening pago que não agrega ao lab:
+  - CKV_AWS_18 # access logging: exige segundo bucket + custo; sem requisito de auditoria
+  - CKV_AWS_144 # replicação cross-region: dobra o custo de storage; dataset recarregável
+  - CKV_AWS_145 # KMS CMK: SSE-S3 (AES256) já cifra em repouso; CMK custa US$ 1/mês/chave
+  - CKV2_AWS_62 # event notifications: nenhum consumidor de eventos de bucket na arquitetura
+  # Rede/observabilidade paga:
+  - CKV2_AWS_11 # VPC flow logs: custo de CloudWatch; rede 100% privada com SGs mínimos
+  # RDS — recursos não suportados/pagos no db.t3.micro do free tier:
+  - CKV2_AWS_30 # query logging do Postgres: custo/ruído sem requisito de auditoria SQL
+  - CKV_AWS_129 # export de logs do RDS para CloudWatch: idem
+  - CKV_AWS_353 # performance insights: não suportado em db.t3.micro
+  - CKV_AWS_118 # enhanced monitoring: agente cobrado por instância

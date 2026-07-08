@@ -22,3 +22,13 @@ output "database_security_group_id" {
   description = "SG do RDS."
   value       = aws_security_group.database.id
 }
+
+output "lambda_ingest_security_group_id" {
+  description = "SG da Lambda de ingestão fria (VPC)."
+  value       = aws_security_group.lambda_ingest.id
+}
+
+output "s3_endpoint_prefix_list_id" {
+  description = "Prefix list do gateway endpoint de S3."
+  value       = aws_vpc_endpoint.s3.prefix_list_id
+}

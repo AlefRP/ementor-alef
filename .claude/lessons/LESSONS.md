@@ -59,6 +59,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: blue é black + aspas SIMPLES (duplas só em docstrings); o CLAUDE.md documentava "aspas duplas" e o código novo seguiu a doc.
 - Regra: código Python novo com aspas simples; rodar `make format` antes de commitar; doc corrigida no CLAUDE.md.
 
+## 2026-07-07 · processo · Feature entregue sem a infra correspondente
+- Sintoma: entreguei API + Lambda com código e testes, mas sem Terraform; usuário corrigiu.
+- Causa raiz: tratei infra como story separada; neste projeto a entrega é vertical (código + testes + IaC).
+- Regra: toda feature com componente de runtime inclui módulo Terraform + composição no environment + TAAC estático no MESMO PR.
+
 ## 2026-07-07 · ci · Bump de action sem checar o runtime declarado na tag
 - Sintoma: warning de Node 20 deprecado persistiu após bump do upload-artifact v4→v5.
 - Causa raiz: assumi que o major novo rodava node24; o v5 ainda declara `runs.using: node20` (node24 só a partir do v6).

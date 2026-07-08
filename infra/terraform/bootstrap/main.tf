@@ -29,6 +29,27 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tf_state" {
   }
 }
 
+# Higiene do bucket de state: multipart incompleto fora e versões antigas
+# expiram (o versionamento continua sendo a rede de segurança do state).
+resource "aws_s3_bucket_lifecycle_configuration" "tf_state" {
+  bucket = aws_s3_bucket.tf_state.id
+
+  rule {
+    id     = "hygiene"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "tf_state" {
   bucket                  = aws_s3_bucket.tf_state.id
   block_public_acls       = true

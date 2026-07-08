@@ -1,7 +1,7 @@
 variable "project" {
   description = "Nome curto do projeto (prefixo de recursos e buckets)."
   type        = string
-  default     = "ementor-lakehouse"
+  default     = "alef-rp-aws-lakehouse"
 }
 
 variable "environment" {
@@ -16,10 +16,16 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-variable "api_ingress_cidrs" {
-  description = "CIDRs com acesso HTTPS às APIs em EC2."
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
+variable "api_port" {
+  description = "Porta privada da API de data product (uvicorn na EC2)."
+  type        = number
+  default     = 8000
+}
+
+variable "ingest_schedule" {
+  description = "Agenda (EventBridge) da Lambda de ingestão fria."
+  type        = string
+  default     = "rate(1 day)"
 }
 
 variable "force_destroy" {

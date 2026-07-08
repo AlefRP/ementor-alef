@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     PGPORT: int = 5432
     PGDATABASE: str = 'olist'
     PGUSER: str = 'lakehouse_admin'
-    # Senha direta (dev/testes) OU secret do RDS (EC2 com instance profile).
+    # 'password' (dev/testes) ou 'iam' (EC2 privada: token assinado pela
+    # role, sem segredo em runtime nem endpoint pago do Secrets Manager).
+    DB_AUTH: str = 'password'
+    # Senha direta (dev/testes) OU secret do RDS (fallback com SECRET_ARN).
     PGPASSWORD: str = ''
     SECRET_ARN: str = ''
 

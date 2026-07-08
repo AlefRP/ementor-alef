@@ -19,7 +19,23 @@ variable "events_queue_arn" {
 }
 
 variable "rds_master_secret_arn" {
-  description = "ARN do secret com a senha master do RDS (lido pela EC2 da API)."
+  description = "ARN do secret com a senha master do RDS (usado só pelo seed)."
+  type        = string
+}
+
+variable "rds_resource_id" {
+  description = "Resource id (dbi-*) do RDS para o ARN de rds-db:connect."
+  type        = string
+}
+
+variable "api_db_user" {
+  description = "Usuário do banco (com grant rds_iam) usado pela API."
+  type        = string
+  default     = "api_reader"
+}
+
+variable "artifacts_bucket_arn" {
+  description = "ARN do bucket de artefatos de deploy (bundle da API)."
   type        = string
 }
 

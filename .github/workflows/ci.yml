@@ -196,6 +196,19 @@ jobs:
       - name: Terraform Plan (integração com AWS)
         run: make tf-plan-out
 
+      # Bundle offline da API (wheelhouse) para a EC2 privada, entregue via
+      # S3 (gateway endpoint na VPC). Enquanto o apply manual não criar o
+      # bucket de artefatos, o passo avisa e segue.
+      - name: Build e upload do bundle da API
+        run: |
+          make api-bundle
+          BUCKET="${{ vars.ARTIFACTS_BUCKET || 'alef-rp-aws-lakehouse-prod-artifacts' }}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3 cp build/api-bundle.tar.gz "s3://$BUCKET/api/api-bundle.tar.gz"
+          else
+            echo "::warning::bucket $BUCKET ainda nao existe - rode make tf-apply e re-execute a esteira"
+          fi
+
       - name: Upload Terraform plan
         if: always()
         uses: actions/upload-artifact@v7
