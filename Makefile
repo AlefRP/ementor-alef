@@ -9,7 +9,7 @@ CHECKOV_ARGS ?=
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
-        hot-producer-bundle release-plan release-apply \
+        api-bundle-upload hot-producer-bundle release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
         tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
@@ -74,11 +74,16 @@ test-cov:
 # Gera build/api-bundle.tar.gz com wheelhouse/ (projeto + extras [api]).
 # A esteira sobe para s3://<prefix>-artifacts/api/ e o user_data da EC2
 # instala com pip --no-index (rede 100% privada, via S3 gateway endpoint).
+# Script Python (não shell) por dois motivos: roda igual no Windows e no CI, e
+# fixa o alvo linux x86_64/cp311 da EC2 — `pip wheel` compilaria para o host,
+# gerando wheels win_amd64 indeployáveis. Ver scripts/bundle/api_bundle.py.
 api-bundle:
-	rm -rf build/api-bundle build/api-bundle.tar.gz
-	mkdir -p build/api-bundle/wheelhouse
-	pip wheel --wheel-dir build/api-bundle/wheelhouse ".[api]"
-	tar -czf build/api-bundle.tar.gz -C build/api-bundle wheelhouse
+	python scripts/bundle/api_bundle.py
+
+# Sobe o bundle para o bucket de artefatos (o user_data da EC2 lê daqui).
+# Use após `make api-bundle` para um deploy local completo.
+api-bundle-upload: api-bundle
+	aws s3 cp build/api-bundle.tar.gz s3://$(ARTIFACTS_BUCKET)/api/api-bundle.tar.gz
 
 # Empacota o producer da camada quente (Faker + handler) no diretório que o
 # módulo hot_ingestion zipa (archive_file source_dir). `terraform validate` não
