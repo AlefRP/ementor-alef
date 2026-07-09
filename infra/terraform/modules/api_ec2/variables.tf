@@ -52,6 +52,12 @@ variable "bundle_key" {
   default     = "api/api-bundle.tar.gz"
 }
 
+variable "validate_bundle" {
+  description = "Valida a existência do bundle no plan/apply. Desligue SOMENTE no destroy (o refresh lê data sources e um bundle ausente travaria o teardown)."
+  type        = bool
+  default     = true
+}
+
 variable "pghost" {
   description = "Endpoint (host) do RDS PostgreSQL."
   type        = string

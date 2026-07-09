@@ -8,6 +8,22 @@ data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+# O user_data instala o bundle no PRIMEIRO boot e nunca roda de novo: sem o
+# bundle publicado, a instância nasceria quebrada e silenciosa. Este data
+# source corta o problema na raiz: o apply falha aqui, antes de criar a EC2
+# (bootstrap do zero é em 2 passos: apply cria o bucket e para aqui ->
+# make api-bundle-upload -> novo apply). O etag entra no user_data, então
+# bundle novo => user_data muda => a instância é substituída no próximo apply.
+# Data sources também são lidos no refresh do DESTROY: sem o count abaixo,
+# bundle ausente tornaria a infra indestrutível (os alvos tf-destroy e
+# tf-plan-out DESTROY=1 passam validate_bundle=false).
+data "aws_s3_object" "bundle" {
+  count = var.validate_bundle ? 1 : 0
+
+  bucket = var.artifacts_bucket
+  key    = var.bundle_key
+}
+
 # TLS self-signed (custo zero) para criptografar o tráfego Lambda -> API dentro
 # da VPC. O SAN é o IP privado FIXO da EC2, então a Lambda chama https://<ip> e
 # verifica o certificado contra a CA embarcada no seu zip (sem depender do DNS
@@ -64,6 +80,7 @@ resource "aws_instance" "this" {
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
     artifacts_bucket = var.artifacts_bucket
     bundle_key       = var.bundle_key
+    bundle_etag      = var.validate_bundle ? data.aws_s3_object.bundle[0].etag : "unverified"
     api_port         = var.api_port
     pghost           = var.pghost
     pgport           = var.pgport
