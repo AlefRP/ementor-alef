@@ -236,7 +236,7 @@ O projeto usa **SonarCloud** (gratuito para repos publicos):
 
 > `SONAR_HOST_URL` nao e necessario — o workflow ja aponta para `https://sonarcloud.io`.
 
-## Referencias para a Sprint 1
+## Referencias
 [Terraform - Provider AWS](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 [Introducao a Testes Unitarios](https://www.youtube.com/watch?v=pZvhZ-Lr-PE)
 [Introducao a Testes com mock](https://www.youtube.com/watch?v=8uiMnwIkPYA)
