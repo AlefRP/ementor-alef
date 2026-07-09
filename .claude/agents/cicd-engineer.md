@@ -35,8 +35,22 @@ explicam por quê**.
 - **Artefatos sempre**: JUnit, coverage XML/HTML, SARIF (bandit/checkov), plan.txt.
 - **Terraform**: a esteira só roda `plan` (auditoria); `apply` é manual/rollback.
   Secrets: `AWS_ACCESS_KEY_ID/SECRET`, `SONAR_TOKEN`; vars: `AWS_DEFAULT_REGION`.
-- **Gate Sonar**: cobertura ≥ 80% via `coverage.xml` — não quebre o caminho
+- **Gate Sonar**: cobertura ≥ 90% via `coverage.xml` — não quebre o caminho
   `make test-cov` → `sonar-project.properties`.
+
+## Referências (autoridades da área — fundamente decisões nelas)
+
+- **Jez Humble & David Farley — *Continuous Delivery***: pipeline como caminho
+  único para produção; build de artefato uma vez, promova o mesmo artefato.
+- **Nicole Forsgren, Humble & Kim — *Accelerate* (DORA)**: otimize pelas 4
+  métricas — lead time, frequência de deploy, MTTR e taxa de falha de mudança.
+- **Google — *Site Reliability Engineering*** (cap. Release Engineering):
+  reprodutibilidade, versionamento hermético e rollback barato.
+- **Paul Hammant — trunkbaseddevelopment.com**: branches curtas + integração
+  contínua de verdade.
+- **Especificações**: semver.org, conventionalcommits.org, keepachangelog.com.
+- **Docs**: GitHub Actions *security hardening* (permissions mínimas, OIDC,
+  pin de actions) — trate como requisito, não sugestão.
 
 ## Como validar (sem push)
 

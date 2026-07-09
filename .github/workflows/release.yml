@@ -1,0 +1,151 @@
+name: CD - Release
+
+# CD (entrega continua): dispara quando o workflow "CI" conclui com sucesso
+# em push na main/master (workflow_run — so roda depois que lint+security+
+# test passaram, nunca a partir do push bruto). Antes de liberar a release,
+# tambem espera o Quality Gate do SonarCloud (sonar.yml) para o MESMO commit,
+# porque as convencoes da esteira definem quality+Sonar como gate de
+# main/master. Calcula a proxima versao semver a partir de Conventional
+# Commits (https://www.conventionalcommits.org), atualiza pyproject.toml
+# (fonte unica da versao — ver scripts/release/release.py), cria a tag
+# vX.Y.Z + GitHub Release com changelog, e anexa o bundle da API como asset.
+#
+# Protecao contra loop: o commit de bump usa o GITHUB_TOKEN padrao, que por
+# design do GitHub NAO dispara outros workflows (push/pull_request) — ver
+# https://docs.github.com/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow.
+# A guarda "[skip release]" abaixo e uma segunda camada de protecao.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main", "master"]
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    # So libera release para o push que efetivamente disparou o CI (ignora
+    # reruns manuais/workflow_dispatch do CI) e só quando o CI passou.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout do EXATO commit validado pelo CI (não do HEAD atual do
+      # branch, que pode ter avançado) — historico completo (fetch-depth 0)
+      # para o git describe/git log localizarem tags e o range de commits.
+      - name: Checkout do commit validado pelo CI
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Guarda contra loop (commit de release não dispara outro release)
+        id: guard
+        run: |
+          MSG="$(git log -1 --pretty=%B)"
+          if echo "$MSG" | grep -qF '[skip release]'; then
+            echo "Commit de release detectado — nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # Só usa stdlib (re/argparse/pathlib) — não precisa instalar o projeto.
+      - name: Calcular próxima versão (Conventional Commits)
+        if: steps.guard.outputs.skip == 'false'
+        id: version
+        run: make release-plan
+
+      # A cobertura (>=90%, gate do SonarCloud) já é responsabilidade do
+      # sonar.yml; aqui só confirmamos que o run daquele workflow para o
+      # MESMO commit terminou com sucesso antes de taguear/liberar a release.
+      # sonar.yml roda em paralelo ao CI (mesmo evento de push) e pode
+      # terminar depois — por isso o polling com timeout, em vez de checar
+      # uma única vez.
+      - name: Aguardar Quality Gate do SonarCloud (mesmo commit)
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          echo "Aguardando sonar.yml para $SHA (branch $BRANCH)..."
+          for i in $(seq 1 60); do
+            RUN_JSON=$(gh run list --workflow=sonar.yml --branch="$BRANCH" --commit="$SHA" \
+              --limit 5 --json status,conclusion,url)
+            COUNT=$(echo "$RUN_JSON" | jq 'length')
+            if [ "$COUNT" -eq 0 ]; then
+              echo "sonar.yml: execução para $SHA ainda não apareceu (tentativa $i/60)"
+              sleep 15
+              continue
+            fi
+            STATUS=$(echo "$RUN_JSON" | jq -r '.[0].status')
+            if [ "$STATUS" != "completed" ]; then
+              echo "sonar.yml: status '$STATUS' (tentativa $i/60)"
+              sleep 15
+              continue
+            fi
+            CONCLUSION=$(echo "$RUN_JSON" | jq -r '.[0].conclusion')
+            URL=$(echo "$RUN_JSON" | jq -r '.[0].url')
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "sonar.yml OK para $SHA ($URL)."
+              exit 0
+            fi
+            echo "::error::sonar.yml concluiu com '$CONCLUSION' para $SHA ($URL). Release abortado — Quality Gate não passou."
+            exit 1
+          done
+          echo "::error::Timeout (15min) aguardando sonar.yml para $SHA."
+          exit 1
+
+      - name: Aplicar bump de versão + changelog
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        run: make release-apply VERSION=${{ steps.version.outputs.next_version }}
+
+      - name: Commit do bump (pyproject.toml + CHANGELOG.md)
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.version.outputs.next_version }} [skip release]"
+          git push origin HEAD:${{ github.event.workflow_run.head_branch }}
+
+      - name: Criar e enviar a tag
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        run: |
+          git tag -a "v${{ steps.version.outputs.next_version }}" -m "Release v${{ steps.version.outputs.next_version }}"
+          git push origin "v${{ steps.version.outputs.next_version }}"
+
+      # Mesmo bundle da story de deploy (make api-bundle); aqui vira asset da
+      # Release em vez de subir para o S3 — mantém o CD sem credenciais AWS.
+      - name: Build do bundle da API
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          make api-bundle
+
+      - name: Criar GitHub Release
+        if: steps.guard.outputs.skip == 'false' && steps.version.outputs.has_release == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.next_version }}
+          name: v${{ steps.version.outputs.next_version }}
+          body_path: CHANGELOG_LATEST.md
+          files: build/api-bundle.tar.gz
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

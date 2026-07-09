@@ -74,6 +74,36 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: `sonar-project.properties` com projectKey/organization que não existem no SonarCloud; as chaves devem ser copiadas do produto.
 - Regra: copiar Project Key e Organization Key da tela Information do projeto; dá para validar sem login via `api/components/search_projects` (projetos públicos).
 
+## 2026-07-09 · tool · Receita de Makefile com comandos Unix quebra no Windows
+- Sintoma: `make tf-apply` falhou no PowerShell do usuário — `rm -rf build/hot-producer` → "CreateProcess(NULL, rm -rf ...) failed" (e=2).
+- Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
+- Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
+
+## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local
+- Sintoma: `make check-format` quebrou no CI (`would reformat tests/taac/test_terraform_static.py`) depois que eu declarei o código formatado sem conseguir rodar o blue (crash no Python 3.14 local).
+- Causa raiz: assumi o estilo do black para `assert cond, msg` — ele envolve a CONDIÇÃO em parênteses, não a mensagem. Ausência de ferramenta virou suposição.
+- Regra: se o formatador não roda na versão local do Python, rode na versão do CI com `uv run --python 3.11 --with blue==0.9.1 --no-project blue --check src tests`. Nunca dizer "formatado" sem executar o gate.
+
+## 2026-07-09 · python · `pip wheel` compila para o host, não para o alvo do deploy
+- Sintoma: `make api-bundle` no Windows gerava wheels `win_amd64` (psycopg[binary], pydantic-core); o `pip install --no-index` do user_data na EC2 (AL2023 x86_64/py3.11) falharia — bundle que "builda" mas não deploya.
+- Causa raiz: `pip wheel` resolve para a plataforma corrente e NÃO aceita `--platform`. Só `pip download` aceita alvo cruzado (exige `--only-binary=:all:`).
+- Regra: artefato de deploy = `pip download --platform manylinux*_x86_64 --python-version 3.11 --abi cp311 --only-binary=:all:` para deps nativas; `pip wheel --no-deps` só para o projeto (Python puro). Valide com `ls wheelhouse | grep win_amd64` → 0.
+
+## 2026-07-09 · tool · Padrão `build/` do .gitignore engole `scripts/build/`
+- Sintoma: `git add scripts/build/` recusou ("paths are ignored by one of your .gitignore files").
+- Causa raiz: `build/` no .gitignore é padrão sem âncora — casa com QUALQUER diretório `build` na árvore, não só o da raiz.
+- Regra: não nomeie diretórios de código como `build`/`dist`; ou ancore o ignore (`/build/`). Movi para `scripts/bundle/`.
+
+## 2026-07-09 · aws · Free tier novo limita concorrência total de Lambda a 10
+- Sintoma: `terraform apply` falhou nas 3 Lambdas: `InvalidParameterValueException: Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution below its minimum value of [10]`.
+- Causa raiz: a AWS exige que o pool NÃO-reservado fique >= 10; com a quota total da conta em 10, reservar qualquer valor (era 1, 1 e 2) já viola a regra. Assumi a quota padrão de 1000.
+- Regra: em conta free tier, `reserved_concurrent_executions = -1` (sem reserva) como default, exposto em variável. Para limitar consumo de SQS use `scaling_config.maximum_concurrency` no event source mapping — não consome a cota da conta.
+
+## 2026-07-09 · terraform · `-var` no destroy não muda atributo lido do state
+- Sintoma: `make tf-destroy` falhou com `BucketNotEmpty` no bucket raw; e `FORCE=1` não teria salvado — o `-var="force_destroy=true"` é ignorado num destroy.
+- Causa raiz: o plano de destroy vem do STATE, não da config. O provider lê `force_destroy` do estado anterior na hora do delete; um `-var` só afeta recursos que o plano vai criar/atualizar.
+- Regra: para deletar bucket com dados, primeiro persista o flag no state (`terraform apply -var="force_destroy=true" -target=module.storage.aws_s3_bucket.layer`, update in-place) e só então destrua. Alvo `tf-force-arm` no Makefile.
+
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.

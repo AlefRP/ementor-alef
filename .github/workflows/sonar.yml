@@ -35,8 +35,8 @@ jobs:
         run: make test-cov
 
       # Gate da story: o job FALHA se o Quality Gate do SonarCloud reprovar.
-      # O threshold (cobertura >= 80%) é configurado no Quality Gate do projeto
-      # no SonarCloud (Administration > Quality Gate).
+      # O threshold (cobertura >= 90%) é configurado no Quality Gate do projeto
+      # no SonarCloud (Administration > Quality Gate) e espelha o make test-cov.
       - name: Sonar scan
         uses: SonarSource/sonarqube-scan-action@v8
         with:

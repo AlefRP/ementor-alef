@@ -33,3 +33,58 @@ resource "aws_sqs_queue_redrive_allow_policy" "events_dlq" {
     sourceQueueArns   = [aws_sqs_queue.events.arn]
   })
 }
+
+# Criptografia em trânsito obrigatória (custo zero): o producer fala com a fila
+# pelo endpoint público da AWS (sem VPC endpoint pago), então travamos o acesso
+# a HTTPS/TLS. Statement Deny com aws:SecureTransport=false é o padrão AWS —
+# quem NÃO usar TLS é barrado, independente da identidade. O acesso positivo
+# continua vindo das roles (least-privilege em governance/roles.tf).
+data "aws_iam_policy_document" "events_tls_only" {
+  statement {
+    sid       = "DenyNonTLS"
+    effect    = "Deny"
+    actions   = ["sqs:*"]
+    resources = [aws_sqs_queue.events.arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "events_tls_only" {
+  queue_url = aws_sqs_queue.events.id
+  policy    = data.aws_iam_policy_document.events_tls_only.json
+}
+
+data "aws_iam_policy_document" "events_dlq_tls_only" {
+  statement {
+    sid       = "DenyNonTLS"
+    effect    = "Deny"
+    actions   = ["sqs:*"]
+    resources = [aws_sqs_queue.events_dlq.arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "events_dlq_tls_only" {
+  queue_url = aws_sqs_queue.events_dlq.id
+  policy    = data.aws_iam_policy_document.events_dlq_tls_only.json
+}

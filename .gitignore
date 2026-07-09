@@ -35,3 +35,7 @@ crash.*.log
 
 # Sonar
 .scannerwork/
+
+# Release (CD) — rascunho de changelog gerado por `make release-plan`,
+# consumido por `make release-apply`/release.yml e nunca versionado.
+CHANGELOG_LATEST.md

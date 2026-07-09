@@ -2,10 +2,22 @@
 # da VPC (subnets privadas): chama a API pelo DNS privado da EC2 e escreve no
 # S3 pelo gateway endpoint — nenhum tráfego sai para a internet.
 
+# Zip com o handler + a CA self-signed da API: a Lambda verifica o TLS da EC2
+# contra este PEM (API_CA_FILE). archive_file com blocos source (content) evita
+# um diretório de build intermediário.
 data "archive_file" "handler" {
   type        = "zip"
-  source_file = var.handler_source
   output_path = "${path.module}/build/${var.prefix}-ingest-cold.zip"
+
+  source {
+    content  = file(var.handler_source)
+    filename = "handler.py"
+  }
+
+  source {
+    content  = var.api_ca_pem
+    filename = "api_ca.pem"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "this" {
@@ -33,8 +45,10 @@ resource "aws_lambda_function" "this" {
   timeout     = var.timeout_seconds
   memory_size = var.memory_mb
 
-  # 1 execução por vez: preserva a semântica do marker (cursor keyset).
-  reserved_concurrent_executions = 1
+  # Cinto de segurança do marker (cursor keyset): 1 execução por vez. Fica em -1
+  # (sem reserva) por padrão para caber na quota de concorrência do free tier —
+  # com schedule diário não há sobreposição de execuções de qualquer forma.
+  reserved_concurrent_executions = var.reserved_concurrency
 
   tracing_config {
     mode = "Active"
@@ -48,6 +62,7 @@ resource "aws_lambda_function" "this" {
   environment {
     variables = {
       API_BASE_URL = var.api_base_url
+      API_CA_FILE  = "/var/task/api_ca.pem" # CA embarcada no zip (raiz da Lambda)
       RAW_BUCKET   = var.raw_bucket
       DATASET      = var.dataset
       PAGE_SIZE    = tostring(var.page_size)

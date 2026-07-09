@@ -77,7 +77,7 @@ Configurada com GitHub Actions e SonarCloud (gratuito para repositorios publicos
 O job de Terraform nunca roda em pull request (protege os secrets de forks) e
 a esteira **só executa `terraform plan`** — o apply é sempre manual
 (`make tf-apply`). O SonarCloud aguarda o Quality Gate
-(`sonar.qualitygate.wait`): reprova se a cobertura ficar abaixo de **80%**
+(`sonar.qualitygate.wait`): reprova se a cobertura ficar abaixo de **90%**
 (threshold configurado no Quality Gate do projeto no SonarCloud).
 
 ### Gates de qualidade
@@ -90,7 +90,7 @@ a esteira **só executa `terraform plan`** — o apply é sempre manual
 | Testes | pytest (unit / integration / TAAC) |
 | Arquitetura (TAAC) | pytest -m taac (estatico sobre HCL + live via boto3) |
 | Infraestrutura | terraform fmt/validate + tflint + checkov (arvore inteira) + plan |
-| Qualidade de codigo | SonarCloud (Quality Gate com cobertura >= 80%) |
+| Qualidade de codigo | SonarCloud (Quality Gate com cobertura >= 90%) |
 
 ### Arquivos da esteira
 
@@ -111,7 +111,7 @@ O CI publica artefatos por execucao: relatorios de cobertura (XML + HTML), resul
 | `SONAR_TOKEN` | Secret | sonar.yml |
 | `AWS_ACCESS_KEY_ID` | Secret | ci.yml (job terraform) + rollback.yml |
 | `AWS_SECRET_ACCESS_KEY` | Secret | ci.yml (job terraform) + rollback.yml |
-| `AWS_DEFAULT_REGION` | Variable (`sa-east-1`) | ci.yml (job terraform) + rollback.yml |
+| `AWS_DEFAULT_REGION` | Variable (`us-east-1`) | ci.yml (job terraform) + rollback.yml |
 
 Configure em Settings → Secrets and variables → Actions (ou no environment
 `prod`, que permite exigir aprovacao manual antes do job de Terraform). Use as
@@ -137,13 +137,13 @@ A estrutura abaixo mostra os diretorios existentes (com `.gitkeep`) e os subdire
 |           `-- prod/          ← IaC do ambiente de producao
 |-- src/
 |   |-- cold/                 ← camada fria
-|   |   |-- api_orders/      ← a criar: FastAPI + Dockerfile
-|   |   |-- lambda_ingest/    ← a criar: handler.py + requirements.txt
+|   |   |-- api_orders/       ← API FastAPI async (data product Olist)
+|   |   |-- lambda_ingest/    ← Lambda EventBridge → API → raw (marker)
 |   |   |-- glue_silver/      ← a criar: job.py + config
 |   |   `-- athena_gold/      ← a criar: DDL de views .sql
 |   |-- hot/                  ← camada quente
-|   |   |-- event_generator_api/ ← a criar: API + Dockerfile
-|   |   |-- lambda_raw_ingest/   ← a criar: handler.py
+|   |   |-- event_producer/   ← Lambda geradora de eventos (EventBridge → SQS)
+|   |   |-- lambda_raw_ingest/ ← Lambda SQS → raw (batch item failures)
 |   |   |-- glue_silver_microbatch/ ← a criar: job.py
 |   |   `-- athena_gold/      ← a criar: DDL de views .sql
 |   `-- consumer/             ← camada de consumo

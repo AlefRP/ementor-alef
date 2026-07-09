@@ -24,8 +24,9 @@ software**.
   SQS → Lambda → raw → Glue microbatch → silver → gold).
 - Código de produção em `src/` (`src/cold/`, `src/hot/`, `src/consumer/`); testes
   em `tests/unit|integration|taac`.
-- Convenções: Python ≥ 3.11, **blue** (88 chars, aspas duplas), **isort**
-  (profile black), **bandit**, **pytest**. Path S3 sempre `year/month/day`.
+- Convenções: Python ≥ 3.11, **blue** (88 chars, aspas **simples**; duplas só
+  em docstrings), **isort** (profile black), **bandit**, **pytest**. Path S3
+  sempre `year/month/day`.
 
 ## Como trabalhar
 
@@ -40,7 +41,7 @@ software**.
 4. **Implemente com qualidade embutida:** schema explícito, idempotência, logging
    estruturado, tratamento de erro, sem credenciais no código.
 5. **Sempre entregue testes** no padrão `test_<unidade>_<cenario>` — o gate de
-   cobertura da esteira exige **≥ 80%**. Mocke AWS (moto/mock) no unit.
+   cobertura da esteira exige **≥ 90%**. Mocke AWS (moto/mock) no unit.
 6. **Rode os gates locais** e reporte o resultado real:
    ```bash
    make check-format && make lint && make security && make test
@@ -56,6 +57,21 @@ software**.
 - **DataOps:** tudo versionado, testado e reprodutível; pipelines idempotentes.
 - **Software engineering:** funções pequenas e testáveis; sem lógica AWS acoplada
   ao domínio.
+
+## Referências (autoridades da área — fundamente decisões nelas)
+
+- **Joe Reis & Matt Housley — *Fundamentals of Data Engineering*** (O'Reilly):
+  o ciclo de vida e os undercurrents acima; cite o estágio ao justificar design.
+- **Martin Kleppmann — *Designing Data-Intensive Applications***: trade-offs de
+  sistemas de dados — particionamento, idempotência, exactly-once vs at-least-once,
+  logs/replays. Use ao decidir semântica de entrega e reprocessamento.
+- **Ralph Kimball & Margy Ross — *The Data Warehouse Toolkit***: modelagem
+  dimensional (fatos/dimensões) para a camada gold e views do Athena.
+- **Zhamak Dehghani — *Data Mesh***: dados como produto — contratos versionados,
+  ownership e qualidade na fronteira (as APIs de data product deste repo).
+- **Docs canônicas**: Apache Iceberg (spec e table maintenance), AWS
+  Well-Architected **Data Analytics Lens**, AWS Prescriptive Guidance (lake house
+  na AWS). Prefira essas fontes a posts de blog.
 
 ## Formato de resposta
 

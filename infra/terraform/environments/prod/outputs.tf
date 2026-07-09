@@ -8,6 +8,11 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
+output "db_seeder_function_name" {
+  description = "Simulação: Lambda que aplica schema, semeia o RDS e cria o api_reader (make seed-db)."
+  value       = module.sim_db_seeder.function_name
+}
+
 output "buckets" {
   description = "Buckets por camada (raw, silver)."
   value       = module.storage.bucket_ids
@@ -36,6 +41,16 @@ output "api_cold_private_dns" {
 output "ingest_cold_function" {
   description = "Lambda de ingestão fria (EventBridge -> API -> raw)."
   value       = module.ingestion_cold.function_name
+}
+
+output "event_producer_function" {
+  description = "Simulação: Lambda que publica eventos sintéticos no SQS."
+  value       = module.sim_event_producer.function_name
+}
+
+output "ingest_hot_function" {
+  description = "Lambda de ingestão quente (SQS -> raw)."
+  value       = module.ingestion_hot.ingest_function_name
 }
 
 output "execution_roles" {

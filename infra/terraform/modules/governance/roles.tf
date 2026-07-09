@@ -110,6 +110,25 @@ resource "aws_iam_role_policy_attachment" "lambda_hot_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# A Lambda quente também roda na VPC (S3 via gateway endpoint).
+resource "aws_iam_role_policy_attachment" "lambda_hot_vpc" {
+  role       = aws_iam_role.lambda_ingest_hot.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# X-Ray nas Lambdas da arquitetura (tracing_config Active exige estas permissões;
+# managed policy do serviço — dados continuam restritos pelas policies acima).
+# As Lambdas de simulação levam o X-Ray na própria role (modules/simulation).
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  for_each = {
+    cold = aws_iam_role.lambda_ingest_cold.name
+    hot  = aws_iam_role.lambda_ingest_hot.name
+  }
+
+  role       = each.value
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 # ---------- Glue (raw -> silver, Iceberg) ----------
 data "aws_iam_policy_document" "glue_assume" {
   statement {

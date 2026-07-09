@@ -5,13 +5,18 @@ TF_ROOT := infra/terraform
 TF_BOOTSTRAP := infra/terraform/bootstrap
 TF_PLAN_FILE ?= tfplan
 CHECKOV_ARGS ?=
+# Recurso alvo do tf-force-arm: os buckets das camadas (todas as instâncias).
+TF_FORCE_TARGET ?= module.storage.aws_s3_bucket.layer
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
+        api-bundle-upload event-producer-bundle db-seeder-bundle seed-db \
+        release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
-        tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
+        tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output \
+        tf-force-arm tf-destroy \
         quality ci
 
 # ---- Setup ----
@@ -24,22 +29,22 @@ install-hooks:
 
 # ---- Qualidade de código (Python) ----
 format:
-	blue src tests
-	isort src tests
+	blue src simulation tests
+	isort src simulation tests
 
 check-format:
-	blue --check src tests
-	isort --check-only src tests
+	blue --check src simulation tests
+	isort --check-only src simulation tests
 
 lint: check-format
-	python -m compileall src tests
+	python -m compileall src simulation tests
 
 # ---- Segurança ----
 # Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
 # disponível sem trocar de formatador; dev-only, só formata código do repo.
 security:
 	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
-	bandit -r src -f json
+	bandit -r src simulation -f json
 
 security-deps:
 	safety check
@@ -64,18 +69,55 @@ test-integration:
 test-taac:
 	pytest -m taac tests/taac
 
+# Gate local de cobertura (>= 90%) — espelhe o mesmo threshold no Quality
+# Gate do SonarCloud (Administration > Quality Gates).
 test-cov:
-	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
+	pytest --junitxml=junit.xml --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing --cov-fail-under=90
 
 # ---- Deploy da API (bundle offline para a EC2 privada) ----
 # Gera build/api-bundle.tar.gz com wheelhouse/ (projeto + extras [api]).
 # A esteira sobe para s3://<prefix>-artifacts/api/ e o user_data da EC2
 # instala com pip --no-index (rede 100% privada, via S3 gateway endpoint).
+# Script Python (não shell) por dois motivos: roda igual no Windows e no CI, e
+# fixa o alvo linux x86_64/cp311 da EC2 — `pip wheel` compilaria para o host,
+# gerando wheels win_amd64 indeployáveis. Ver scripts/bundle/api_bundle.py.
 api-bundle:
-	rm -rf build/api-bundle build/api-bundle.tar.gz
-	mkdir -p build/api-bundle/wheelhouse
-	pip wheel --wheel-dir build/api-bundle/wheelhouse ".[api]"
-	tar -czf build/api-bundle.tar.gz -C build/api-bundle wheelhouse
+	python scripts/bundle/api_bundle.py
+
+# Sobe o bundle para o bucket de artefatos (o user_data da EC2 lê daqui).
+# Use após `make api-bundle` para um deploy local completo.
+api-bundle-upload: api-bundle
+	aws s3 cp build/api-bundle.tar.gz s3://$(ARTIFACTS_BUCKET)/api/api-bundle.tar.gz
+
+# ---- Simulação (alimenta SQS e RDS; fora da arquitetura) ----
+# Empacota o producer de eventos. `terraform validate` não executa archive_file,
+# então só `tf-plan`/`tf-apply` dependem destes alvos.
+event-producer-bundle:
+	python scripts/bundle/event_producer_bundle.py
+
+# Pacote da Lambda de seed do RDS (simulation/ + psycopg + faker + .sql),
+# fixado em linux aarch64/cp313 — o alvo do runtime da função.
+db-seeder-bundle:
+	python scripts/bundle/db_seeder_bundle.py
+
+# Semeia o banco privado invocando a Lambda de seed (idempotente).
+seed-db:
+	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw db_seeder_function_name) --cli-read-timeout 700 build/seed-response.json
+	python -c "import json;print(json.load(open('build/seed-response.json')))"
+
+# ---- Release (CD) ----
+# Fonte unica da versao: pyproject.toml ([project].version). Calcula a
+# proxima versao semver a partir de Conventional Commits desde a ultima tag
+# vX.Y.Z (grava outputs em $GITHUB_OUTPUT no CI; imprime no stdout em
+# dry-run local). Ver scripts/release/release.py para o racional completo.
+release-plan:
+	python scripts/release/release.py plan
+
+# Aplica o bump decidido pelo release-plan: version = "..." em
+# pyproject.toml + entrada nova em CHANGELOG.md. VERSION e obrigatorio, ex.:
+# make release-apply VERSION=1.2.0
+release-apply:
+	python scripts/release/release.py apply --version $(VERSION)
 
 # ---- Infraestrutura (Terraform) ----
 # Bootstrap do state remoto: apply ÚNICO com state local (cria o bucket que os
@@ -108,14 +150,15 @@ tf-security:
 tf-init:
 	terraform -chdir=$(TF_DIR) init
 
-tf-plan:
+tf-plan: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) plan -no-color
 
 # ---- Alvos da esteira (plan salvo como artefato + apply exato do plan) ----
-# DESTROY=1 planeja a destruição; FORCE=1 permite esvaziar buckets raw/silver.
+# DESTROY=1 planeja a destruição; FORCE=1 mantém a config alinhada ao state —
+# quem de fato libera esvaziar os buckets é o tf-force-arm, antes deste plan.
 # init -reconfigure: o job pode ter rodado tf-validate (backend=false) antes.
-tf-plan-out:
+tf-plan-out: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init -reconfigure
 	terraform -chdir=$(TF_DIR) plan -no-color $(if $(DESTROY),-destroy) $(if $(FORCE),-var="force_destroy=true") -out=$(TF_PLAN_FILE)
 	terraform -chdir=$(TF_DIR) show -no-color $(TF_PLAN_FILE) > $(TF_DIR)/plan.txt
@@ -125,17 +168,25 @@ tf-apply-plan:
 	terraform -chdir=$(TF_DIR) apply -no-color $(TF_PLAN_FILE)
 
 # Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
-tf-apply:
+tf-apply: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) apply
 
 tf-output:
 	terraform -chdir=$(TF_DIR) output
 
+# O provider lê `force_destroy` do STATE na hora de deletar o bucket — passar
+# -var no destroy não tem efeito. Este alvo grava o flag no state (update
+# in-place, só nos buckets) para que o destroy seguinte possa esvaziá-los.
+# AUTO_APPROVE=1 dispensa a confirmação (uso da esteira).
+tf-force-arm: event-producer-bundle db-seeder-bundle
+	terraform -chdir=$(TF_DIR) init
+	terraform -chdir=$(TF_DIR) apply -var="force_destroy=true" -target=$(TF_FORCE_TARGET) $(if $(AUTO_APPROVE),-auto-approve)
+
 # Destroi TODA a infra do ambiente (terraform pede confirmação digitando "yes").
-# Buckets com dados exigem FORCE=1 (esvazia raw/silver antes de destruir).
+# Buckets com dados exigem FORCE=1 (arma o force_destroy e esvazia raw/silver).
 # O bucket de state (bootstrap) fica de pé por design (prevent_destroy).
-tf-destroy:
+tf-destroy: $(if $(FORCE),tf-force-arm)
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) destroy $(if $(FORCE),-var="force_destroy=true")
 
