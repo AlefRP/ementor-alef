@@ -1,8 +1,10 @@
 name: Rollback
 
-# Rollback manual da infra: faz checkout de um ref antigo (tag/SHA) e aplica
-# aquela configuração sobre o state remoto. Único ponto da esteira autorizado
-# a rodar apply — sempre disparado por humano, com plan salvo como auditoria.
+# Rollback manual da infra: faz checkout de um ref antigo (idealmente uma tag
+# de versão vX.Y.Z criada pelo CD — release.yml — a cada merge na master) e
+# aplica aquela configuração sobre o state remoto. Único ponto da esteira
+# autorizado a rodar apply — sempre disparado por humano, com plan salvo
+# como auditoria.
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +16,7 @@ on:
           - prod
         default: prod
       target_ref:
-        description: "Tag ou SHA do commit para o qual voltar"
+        description: "Tag de versão (recomendado, ex.: v1.2.3 — criada pelo CD em cada merge na master) ou SHA do commit para o qual voltar"
         required: true
         type: string
       mode:
@@ -59,10 +61,25 @@ jobs:
           echo "Modo: ${{ inputs.mode }} | Ator: ${{ github.actor }}"
           echo "Motivo: ${{ inputs.reason || 'não informado' }}"
 
-      - name: Checkout target ref
+      # Historico completo (fetch-depth 0) só para validar o ref — evita um
+      # `actions/checkout` direto com `ref` inválido, que falha com um erro
+      # git genérico em vez de explicar o que fazer.
+      - name: Checkout completo (para validar o target_ref)
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+
+      - name: Validar e fazer checkout do target_ref
+        run: |
+          if ! git rev-parse --verify --quiet "${{ inputs.target_ref }}^{commit}" >/dev/null; then
+            echo "::error::Ref '${{ inputs.target_ref }}' não existe neste repositório. Prefira uma tag de release (vX.Y.Z, criada pelo workflow CD em cada merge na master) ou um SHA de commit válido."
+            exit 1
+          fi
+          case "${{ inputs.target_ref }}" in
+            v[0-9]*.[0-9]*.[0-9]*) : ;;
+            *) echo "::warning::'${{ inputs.target_ref }}' não segue o padrão vX.Y.Z; o rollback funciona com qualquer ref, mas o padrão recomendado é usar tags de release." ;;
+          esac
+          git checkout "${{ inputs.target_ref }}"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
