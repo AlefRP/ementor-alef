@@ -25,9 +25,10 @@ melhores práticas de referência da área. Fundamentação:
 | Agent | Uso |
 |---|---|
 | **data-engineer** | Projetar/implementar componentes de pipeline (Python, Glue, Lambda, modelagem). |
+| **spark-glue-engineer** | Escrever/otimizar jobs Spark/Glue da transformação raw→silver (Iceberg) e silver→gold; particionamento e tuning. |
 | **iac-security-reviewer** | Revisar Terraform (read-only): least-privilege, checkov/tflint, Block Public Access, segredos. |
 | **cicd-engineer** | Criar/depurar a esteira (GitHub Actions, gates, Sonar, terraform plan, rollback, artefatos). |
-| **test-engineer** | Escrever/melhorar testes (unit, integration, TAAC) e fechar lacunas rumo à cobertura ≥ 80%. |
+| **test-engineer** | Escrever/melhorar testes (unit, integration, TAAC) e fechar lacunas rumo à cobertura ≥ 90%. |
 
 ## Commands (`.claude/commands/`) — slash commands
 
@@ -35,7 +36,7 @@ melhores práticas de referência da área. Fundamentação:
 |---|---|
 | `/quality [alvo]` | Roda o gate local (format, lint, security, testes) e resume falhas. |
 | `/tf-plan [env]` | fmt/validate/tflint/checkov + `terraform plan` do ambiente; resume a mudança de infra. |
-| `/coverage` | Testes com cobertura e verifica o gate de **≥ 80%** (critério do SonarCloud). |
+| `/coverage` | Testes com cobertura e verifica o gate de **≥ 90%** (critério do SonarCloud). |
 | `/lesson [erro]` | Registra uma lição aprendida (sintoma → causa raiz → regra) no banco de lições. |
 
 ## Banco de lições (`.claude/lessons/LESSONS.md`)
@@ -78,6 +79,6 @@ Para reduzir prompts de permissão dos comandos, você pode ainda adicionar ao
 ---
 
 Os building blocks **codificam as convenções do repo** (blue 88 col, isort profile black,
-path `year/month/day`, `src/` para produção, cobertura ≥ 80%, sem credenciais no código) —
+path `year/month/day`, `src/` para produção, cobertura ≥ 90%, sem credenciais no código) —
 mantenha-os alinhados a `.github/copilot-instructions.md`, ao `Makefile` e à esteira em
 `.github/workflows/` conforme o projeto evolui.

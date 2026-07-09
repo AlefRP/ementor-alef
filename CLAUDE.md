@@ -40,5 +40,5 @@ make tf-destroy FORCE=1                # teardown total (FORCE esvazia buckets)
 ## Building blocks
 
 Skills: `terraform-aws-module`, `lakehouse-governance`, `glue-iceberg-job`, `aws-lambda-ingestion`, `taac-testing`.
-Agents: `data-engineer`, `software-engineer`, `iac-security-reviewer`, `cicd-engineer`, `test-engineer`.
+Agents: `data-engineer`, `spark-glue-engineer`, `software-engineer`, `iac-security-reviewer`, `cicd-engineer`, `test-engineer`.
 Commands: `/quality`, `/tf-plan`, `/coverage`, `/lesson`.
