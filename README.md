@@ -97,7 +97,7 @@ a esteira **só executa `terraform plan`** — o apply é sempre manual
 - `.github/workflows/ci.yml` — lint, seguranca, testes (matrix Python 3.11/3.12/3.13) e terraform plan/checks contra a AWS
 - `.github/workflows/sonar.yml` — cobertura + scan SonarCloud
 - `.github/workflows/rollback.yml` — rollback manual (checkout de tag/SHA antigo; modo `plan` para simular ou `apply` para executar; plan salvo como artefato de auditoria)
-- `.github/workflows/destroy.yml` — teardown manual do ambiente (confirmacao digitada + opcao `force` para esvaziar buckets; preserva o bucket de state)
+- `.github/workflows/destroy.yml` — teardown manual do ambiente (confirmacao digitada + opcao `force` para esvaziar buckets; preserva o bucket de state). O `force` roda um apply previo (`make tf-force-arm`) que grava `force_destroy=true` no state: o provider AWS le esse atributo do state ao deletar o bucket, entao passar `-var` direto no `terraform destroy` nao teria efeito e o teardown falharia com `BucketNotEmpty`.
 - `.github/dependabot.yml` — atualizacao automatica de GitHub Actions, dependencias pip e modulos Terraform
 - `.pre-commit-config.yaml` — hooks locais que espelham os gates (blue, isort, bandit, detect-secrets, terraform fmt)
 - `sonar-project.properties` — configuracao do projeto no SonarCloud

@@ -181,6 +181,50 @@ resource "aws_vpc_security_group_egress_rule" "lambda_hot_to_s3" {
   ip_protocol       = "tcp"
 }
 
+# ---- Session Manager na EC2 privada (sem SSH, sem IP público) ----
+# Sem NAT, o agente SSM só alcança o serviço por interface endpoints (pagos,
+# ~US$ 0,01/h cada). Ficam numa ÚNICA subnet para não multiplicar o custo por
+# AZ — o DNS privado resolve para eles a partir da VPC inteira. Sem este
+# caminho, uma falha de boot da API é indiagnosticável (caixa-preta).
+resource "aws_security_group" "vpce" {
+  name        = "${var.prefix}-vpce"
+  description = "Interface endpoints SSM - entrada TLS da EC2 da API"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.prefix}-vpce-sg" })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "vpce_from_api" {
+  security_group_id            = aws_security_group.vpce.id
+  description                  = "TLS do agente SSM na EC2 da API"
+  referenced_security_group_id = aws_security_group.api.id
+  from_port                    = 443
+  to_port                      = 443
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "api_to_vpce" {
+  security_group_id            = aws_security_group.api.id
+  description                  = "TLS aos interface endpoints do SSM"
+  referenced_security_group_id = aws_security_group.vpce.id
+  from_port                    = 443
+  to_port                      = 443
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_endpoint" "ssm" {
+  for_each = toset(["ssm", "ssmmessages", "ec2messages"])
+
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.${each.value}"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private[0].id]
+  security_group_ids  = [aws_security_group.vpce.id]
+  private_dns_enabled = true
+
+  tags = merge(var.tags, { Name = "${var.prefix}-${each.value}-endpoint" })
+}
+
 # SG da Lambda de SEED do banco (simulação): roda na VPC só para alcançar o RDS
 # (o RDS é privado e a EC2 não chega ao Secrets Manager). Sem entrada.
 resource "aws_security_group" "lambda_db_seeder" {

@@ -77,6 +77,7 @@ module "api_cold" {
   instance_profile_name = module.governance.ec2_api_instance_profile_name
   api_port              = var.api_port
   artifacts_bucket      = module.storage.bucket_ids["artifacts"]
+  validate_bundle       = var.validate_bundle
   pghost                = module.database.address
   pgport                = module.database.port
   pgdatabase            = module.database.db_name

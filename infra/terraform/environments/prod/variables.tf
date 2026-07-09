@@ -45,3 +45,9 @@ variable "force_destroy" {
   type        = bool
   default     = false
 }
+
+variable "validate_bundle" {
+  description = "Valida o bundle da API no plan/apply. Os alvos de destroy passam false: o refresh lê data sources e um bundle ausente travaria o teardown."
+  type        = bool
+  default     = true
+}

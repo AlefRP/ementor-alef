@@ -7,6 +7,10 @@ TF_PLAN_FILE ?= tfplan
 CHECKOV_ARGS ?=
 # Recurso alvo do tf-force-arm: os buckets das camadas (todas as instâncias).
 TF_FORCE_TARGET ?= module.storage.aws_s3_bucket.layer
+# Buckets do lakehouse (prefixo fixo do projeto + camadas).
+TF_PREFIX := alef-rp-aws-lakehouse-$(TF_ENV)
+TF_BUCKETS := $(TF_PREFIX)-raw $(TF_PREFIX)-silver $(TF_PREFIX)-artifacts
+ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
@@ -16,7 +20,7 @@ TF_FORCE_TARGET ?= module.storage.aws_s3_bucket.layer
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
         tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output \
-        tf-force-arm tf-destroy \
+        tf-empty-buckets tf-force-arm tf-destroy-precheck tf-destroy \
         quality ci
 
 # ---- Setup ----
@@ -160,7 +164,7 @@ tf-plan: event-producer-bundle db-seeder-bundle
 # init -reconfigure: o job pode ter rodado tf-validate (backend=false) antes.
 tf-plan-out: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init -reconfigure
-	terraform -chdir=$(TF_DIR) plan -no-color $(if $(DESTROY),-destroy) $(if $(FORCE),-var="force_destroy=true") -out=$(TF_PLAN_FILE)
+	terraform -chdir=$(TF_DIR) plan -no-color $(if $(DESTROY),-destroy -var="validate_bundle=false") $(if $(FORCE),-var="force_destroy=true") -out=$(TF_PLAN_FILE)
 	terraform -chdir=$(TF_DIR) show -no-color $(TF_PLAN_FILE) > $(TF_DIR)/plan.txt
 
 # Aplica exatamente o plan salvo por tf-plan-out (sem confirmação — só esteira).
@@ -175,20 +179,35 @@ tf-apply: event-producer-bundle db-seeder-bundle
 tf-output:
 	terraform -chdir=$(TF_DIR) output
 
+# Esvazia buckets versionados (raw, silver, artifacts) via API — deleta todas
+# as versões e delete markers. Necessário antes do tf-destroy com FORCE=1,
+# já que force_destroy do Terraform não remove versões de buckets versionados.
+tf-empty-buckets:
+	python scripts/teardown/empty_versioned_bucket.py $(TF_BUCKETS)
+
 # O provider lê `force_destroy` do STATE na hora de deletar o bucket — passar
 # -var no destroy não tem efeito. Este alvo grava o flag no state (update
 # in-place, só nos buckets) para que o destroy seguinte possa esvaziá-los.
 # AUTO_APPROVE=1 dispensa a confirmação (uso da esteira).
-tf-force-arm: event-producer-bundle db-seeder-bundle
+tf-force-arm: event-producer-bundle db-seeder-bundle tf-empty-buckets
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) apply -var="force_destroy=true" -target=$(TF_FORCE_TARGET) $(if $(AUTO_APPROVE),-auto-approve)
 
 # Destroi TODA a infra do ambiente (terraform pede confirmação digitando "yes").
-# Buckets com dados exigem FORCE=1 (arma o force_destroy e esvazia raw/silver).
+# Buckets com dados exigem FORCE=1 (arma force_destroy + esvazia raw/silver/artifacts
+# via scripts/teardown/empty_versioned_bucket.py antes do destroy).
 # O bucket de state (bootstrap) fica de pé por design (prevent_destroy).
-tf-destroy: $(if $(FORCE),tf-force-arm)
+# Sem FORCE, um destroy com dados nos buckets roda ~20 min e falha só no
+# último recurso (BucketNotEmpty). Este precheck falha em segundos e aponta
+# o comando certo. Bucket inexistente conta como vazio (teardown parcial).
+tf-destroy-precheck:
+	python scripts/teardown/empty_versioned_bucket.py --check $(TF_BUCKETS)
+
+# validate_bundle=false: o refresh do destroy lê data sources; sem isso, um
+# bundle ausente no bucket de artefatos travaria o teardown.
+tf-destroy: $(if $(FORCE),tf-force-arm,tf-destroy-precheck)
 	terraform -chdir=$(TF_DIR) init
-	terraform -chdir=$(TF_DIR) destroy $(if $(FORCE),-var="force_destroy=true")
+	terraform -chdir=$(TF_DIR) destroy -var="validate_bundle=false" $(if $(FORCE),-var="force_destroy=true")
 
 # ---- Agregados ----
 quality: check-format lint security test

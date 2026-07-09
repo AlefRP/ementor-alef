@@ -238,6 +238,58 @@ def test_rds_uses_iam_authentication(resources):
         ), f'{db.address}: IAM auth desabilitado'
 
 
+def test_private_ec2_is_diagnosable(terraform_dir, resources):
+    """EC2 privada sem caixa-preta: SSM por interface endpoints + log de boot.
+
+    Sem SSH/IP público/NAT, uma falha de boot seria indiagnosticável: o
+    Session Manager dá shell auditável e o user_data replica o log no S3.
+    """
+    endpoints = _by_type(resources, 'aws_vpc_endpoint')
+    interface = [
+        e
+        for e in endpoints
+        if re.search(r'vpc_endpoint_type\s*=\s*"Interface"', e.body)
+    ]
+    assert interface, 'esperava interface endpoints do SSM'
+    for service in ('"ssm"', '"ssmmessages"', '"ec2messages"'):
+        assert any(
+            service in e.body for e in interface
+        ), f'interface endpoint {service} ausente (Session Manager)'
+
+    attachments = _by_type(resources, 'aws_iam_role_policy_attachment')
+    assert any(
+        'AmazonSSMManagedInstanceCore' in a.body for a in attachments
+    ), 'role da EC2 sem AmazonSSMManagedInstanceCore (Session Manager)'
+
+    user_data = (
+        terraform_dir / 'modules' / 'api_ec2' / 'templates' / 'user_data.sh.tpl'
+    ).read_text(encoding='utf-8')
+    assert (
+        'trap' in user_data and '/logs/' in user_data
+    ), 'user_data deve enviar /var/log/user-data.log ao S3 em caso de falha'
+
+
+def test_api_bundle_gates_instance_creation(terraform_blocks):
+    """O apply valida o bundle ANTES de criar a EC2 (e replace em bundle novo).
+
+    O user_data roda uma única vez: sem o data source do bundle, a instância
+    nasceria quebrada e silenciosa; o etag no user_data força replace quando
+    um bundle novo é publicado.
+    """
+    bundle_data = [
+        b for b in terraform_blocks if b.kind == 'data' and b.type == 'aws_s3_object'
+    ]
+    assert bundle_data, 'esperava data aws_s3_object validando o bundle da API'
+
+    instances = [
+        b for b in terraform_blocks if b.kind == 'resource' and b.type == 'aws_instance'
+    ]
+    for inst in instances:
+        assert (
+            'bundle_etag' in inst.body
+        ), f'{inst.address}: user_data sem etag do bundle (replace no redeploy)'
+
+
 def test_no_ingress_rule_open_to_internet(terraform_blocks):
     """Nenhuma regra de ingress com 0.0.0.0/0 (workloads 100% privados)."""
     rules = [
