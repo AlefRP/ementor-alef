@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_DIR = ROOT / 'build' / 'hot-producer'
 PRODUCER = ROOT / 'src' / 'hot' / 'event_producer'
+SYNTHETIC = ROOT / 'synthetic'
 
 
 def main() -> int:
@@ -37,6 +38,12 @@ def main() -> int:
         check=True,
     )
     shutil.copy(PRODUCER / 'handler.py', BUILD_DIR / 'handler.py')
+    # O handler importa `synthetic.events` (simulação dos eventos).
+    shutil.copytree(
+        SYNTHETIC,
+        BUILD_DIR / 'synthetic',
+        ignore=shutil.ignore_patterns('__pycache__'),
+    )
     print(f'>> Bundle do producer pronto em {BUILD_DIR}')
     return 0
 

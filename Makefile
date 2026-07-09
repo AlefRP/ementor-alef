@@ -9,7 +9,8 @@ CHECKOV_ARGS ?=
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
-        api-bundle-upload hot-producer-bundle release-plan release-apply \
+        api-bundle-upload hot-producer-bundle bootstrap-db-bundle seed-db \
+        release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
         tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
@@ -25,22 +26,22 @@ install-hooks:
 
 # ---- Qualidade de código (Python) ----
 format:
-	blue src tests
-	isort src tests
+	blue src synthetic tests
+	isort src synthetic tests
 
 check-format:
-	blue --check src tests
-	isort --check-only src tests
+	blue --check src synthetic tests
+	isort --check-only src synthetic tests
 
 lint: check-format
-	python -m compileall src tests
+	python -m compileall src synthetic tests
 
 # ---- Segurança ----
 # Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
 # disponível sem trocar de formatador; dev-only, só formata código do repo.
 security:
 	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
-	bandit -r src -f json
+	bandit -r src synthetic -f json
 
 security-deps:
 	safety check
@@ -92,6 +93,16 @@ api-bundle-upload: api-bundle
 hot-producer-bundle:
 	python scripts/bundle/hot_producer_bundle.py
 
+# Pacote da Lambda de bootstrap do banco (handler + psycopg + faker + .sql),
+# fixado em linux aarch64/cp313 — o alvo do runtime da função.
+bootstrap-db-bundle:
+	python scripts/bundle/bootstrap_db_bundle.py
+
+# Semeia o banco privado invocando a Lambda de bootstrap (idempotente).
+seed-db:
+	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw bootstrap_db_function_name) --cli-read-timeout 700 build/seed-response.json
+	python -c "import json;print(json.load(open('build/seed-response.json')))"
+
 # ---- Release (CD) ----
 # Fonte unica da versao: pyproject.toml ([project].version). Calcula a
 # proxima versao semver a partir de Conventional Commits desde a ultima tag
@@ -137,14 +148,14 @@ tf-security:
 tf-init:
 	terraform -chdir=$(TF_DIR) init
 
-tf-plan: hot-producer-bundle
+tf-plan: hot-producer-bundle bootstrap-db-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) plan -no-color
 
 # ---- Alvos da esteira (plan salvo como artefato + apply exato do plan) ----
 # DESTROY=1 planeja a destruição; FORCE=1 permite esvaziar buckets raw/silver.
 # init -reconfigure: o job pode ter rodado tf-validate (backend=false) antes.
-tf-plan-out: hot-producer-bundle
+tf-plan-out: hot-producer-bundle bootstrap-db-bundle
 	terraform -chdir=$(TF_DIR) init -reconfigure
 	terraform -chdir=$(TF_DIR) plan -no-color $(if $(DESTROY),-destroy) $(if $(FORCE),-var="force_destroy=true") -out=$(TF_PLAN_FILE)
 	terraform -chdir=$(TF_DIR) show -no-color $(TF_PLAN_FILE) > $(TF_DIR)/plan.txt
@@ -154,7 +165,7 @@ tf-apply-plan:
 	terraform -chdir=$(TF_DIR) apply -no-color $(TF_PLAN_FILE)
 
 # Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
-tf-apply: hot-producer-bundle
+tf-apply: hot-producer-bundle bootstrap-db-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) apply
 

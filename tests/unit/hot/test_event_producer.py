@@ -1,6 +1,10 @@
-"""Testes da Lambda produtora de eventos sintéticos (camada quente)."""
+"""Testes da Lambda produtora de eventos sintéticos (camada quente).
+
+Cobre a orquestração (lotes, erro do SQS). A geração dos eventos vive em
+``synthetic/events.py`` e é simulação de dados — sem teste por decisão de
+projeto; aqui só validamos que o payload respeita o vocabulário do domínio.
+"""
 import json
-from datetime import datetime, timezone
 from unittest import mock
 
 import boto3
@@ -9,6 +13,7 @@ from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from src.hot.event_producer import handler as producer
+from synthetic import olist
 
 QUEUE = 'eventos-teste'
 
@@ -54,19 +59,12 @@ def test_published_message_is_valid_olist_event(producer_env, monkeypatch):
     message = boto3.client('sqs').receive_message(QueueUrl=url)['Messages'][0]
     event = json.loads(message['Body'])
     assert event['event_type'].startswith('order_')
-    assert event['customer']['customer_state'] in producer.CUSTOMER_STATES
-    assert event['payment']['payment_type'] in producer.PAYMENT_TYPES
+    assert event['customer']['customer_state'] in olist.CUSTOMER_STATES
+    assert event['payment']['payment_type'] in olist.PAYMENT_TYPES
     assert event['event_id'] and event['order']['order_id']
     # Faker preencheu os campos realistas (nome/cidade não vazios).
     assert event['customer']['customer_name']
     assert event['customer']['customer_city']
-
-
-def test_new_event_uses_moment_timestamp():
-    moment = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
-    event = producer._new_event(moment)
-    assert event['event_timestamp'] == '2026-07-08T12:00:00+00:00'
-    assert 1 <= event['order']['items_count'] <= 4
 
 
 @mock_aws

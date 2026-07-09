@@ -5,9 +5,10 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 ## Mapa
 
 - `src/cold|hot|consumer/` — código de produção (só aqui)
+- `synthetic/` — simulação de dados do lab (eventos p/ SQS, tabelas p/ RDS). Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura** (não é lógica de negócio)
 - `tests/unit|integration|taac/` — markers `integration` e `taac`
 - `infra/terraform/` — `bootstrap/` (state remoto, apply único), `modules/`, `environments/prod/`
-- `scripts/database/` — seed único do Olist no RDS
+- `scripts/database/` — seed do Olist no RDS; `scripts/bundle/` — empacotamento das Lambdas/API
 - `.claude/` — skills, agents, commands, hooks, lessons (ver `.claude/README.md`)
 
 ## Comandos
