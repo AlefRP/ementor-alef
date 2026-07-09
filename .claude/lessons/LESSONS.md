@@ -79,6 +79,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
 - Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
 
+## 2026-07-09 · python · `pip wheel` compila para o host, não para o alvo do deploy
+- Sintoma: `make api-bundle` no Windows gerava wheels `win_amd64` (psycopg[binary], pydantic-core); o `pip install --no-index` do user_data na EC2 (AL2023 x86_64/py3.11) falharia — bundle que "builda" mas não deploya.
+- Causa raiz: `pip wheel` resolve para a plataforma corrente e NÃO aceita `--platform`. Só `pip download` aceita alvo cruzado (exige `--only-binary=:all:`).
+- Regra: artefato de deploy = `pip download --platform manylinux*_x86_64 --python-version 3.11 --abi cp311 --only-binary=:all:` para deps nativas; `pip wheel --no-deps` só para o projeto (Python puro). Valide com `ls wheelhouse | grep win_amd64` → 0.
+
 ## 2026-07-09 · tool · Padrão `build/` do .gitignore engole `scripts/build/`
 - Sintoma: `git add scripts/build/` recusou ("paths are ignored by one of your .gitignore files").
 - Causa raiz: `build/` no .gitignore é padrão sem âncora — casa com QUALQUER diretório `build` na árvore, não só o da raiz.
