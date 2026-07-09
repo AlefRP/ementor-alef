@@ -37,20 +37,26 @@ ORDER_STATUSES = ('delivered', 'shipped', 'invoiced', 'approved', 'canceled')
 
 fake = Faker('pt_BR')
 
+# RNG próprio em vez do global do módulo ``random``: seedável (reprodutibilidade
+# exige PRNG — ``secrets`` não aceita semente) e sem vazar estado para outros
+# consumidores de ``random``. Dado sintético não é uso criptográfico.
+_RNG = random.Random()  # nosec B311
+
 
 def seed_random(seed: int) -> None:
     """Fixa as sementes (reprodutibilidade em teste e em lab)."""
-    random.seed(seed)
+    _RNG.seed(seed)
     Faker.seed(seed)
 
 
 def _new_id() -> str:
-    """Id no formato de uuid4 hex, porém derivado do RNG do módulo.
+    """Id no formato de uuid4 hex, porém derivado de ``_RNG``.
 
-    ``uuid.uuid4()`` lê de ``os.urandom`` e ignora ``random.seed()``, o que
-    quebraria a reprodutibilidade prometida por ``seed_random``/``--seed``.
+    ``uuid.uuid4()`` lê de ``os.urandom`` e ignora a semente fixada por
+    ``seed_random``, o que quebraria a reprodutibilidade prometida por
+    ``seed_random``/``--seed``.
     """
-    return uuid.UUID(int=random.getrandbits(128), version=4).hex
+    return uuid.UUID(int=_RNG.getrandbits(128), version=4).hex
 
 
 def _zip_prefix() -> str:
@@ -65,7 +71,7 @@ def gen_customers(n: int) -> list[tuple]:
             _new_id(),
             _zip_prefix(),
             fake.city(),
-            random.choice(CUSTOMER_STATES),
+            _RNG.choice(CUSTOMER_STATES),
         )
         for _ in range(n)
     ]
@@ -73,7 +79,7 @@ def gen_customers(n: int) -> list[tuple]:
 
 def gen_sellers(n: int) -> list[tuple]:
     return [
-        (_new_id(), _zip_prefix(), fake.city(), random.choice(CUSTOMER_STATES))
+        (_new_id(), _zip_prefix(), fake.city(), _RNG.choice(CUSTOMER_STATES))
         for _ in range(n)
     ]
 
@@ -85,7 +91,7 @@ def gen_geolocation(n: int) -> list[tuple]:
             float(fake.latitude()),
             float(fake.longitude()),
             fake.city(),
-            random.choice(CUSTOMER_STATES),
+            _RNG.choice(CUSTOMER_STATES),
         )
         for _ in range(n)
     ]
@@ -95,14 +101,14 @@ def gen_products(n: int) -> list[tuple]:
     return [
         (
             _new_id(),
-            random.choice(list(PRODUCT_CATEGORIES)),
-            random.randint(20, 60),
-            random.randint(100, 3000),
-            random.randint(1, 6),
-            random.randint(100, 30000),
-            random.randint(5, 100),
-            random.randint(5, 100),
-            random.randint(5, 100),
+            _RNG.choice(list(PRODUCT_CATEGORIES)),
+            _RNG.randint(20, 60),
+            _RNG.randint(100, 3000),
+            _RNG.randint(1, 6),
+            _RNG.randint(100, 30000),
+            _RNG.randint(5, 100),
+            _RNG.randint(5, 100),
+            _RNG.randint(5, 100),
         )
         for _ in range(n)
     ]
@@ -119,51 +125,51 @@ def gen_order_graph(
     for _ in range(order_count):
         order_id = _new_id()
         purchased = fake.date_time_between(start_date='-2y', end_date='now')
-        approved = purchased + timedelta(hours=random.randint(1, 48))
-        delivered = approved + timedelta(days=random.randint(1, 20))
-        estimated = purchased + timedelta(days=random.randint(5, 30))
+        approved = purchased + timedelta(hours=_RNG.randint(1, 48))
+        delivered = approved + timedelta(days=_RNG.randint(1, 20))
+        estimated = purchased + timedelta(days=_RNG.randint(5, 30))
         orders.append(
             (
                 order_id,
-                random.choice(customer_ids),
-                random.choice(ORDER_STATUSES),
+                _RNG.choice(customer_ids),
+                _RNG.choice(ORDER_STATUSES),
                 purchased,
                 approved,
-                approved + timedelta(days=random.randint(1, 5)),
+                approved + timedelta(days=_RNG.randint(1, 5)),
                 delivered,
                 estimated,
             )
         )
-        for item_id in range(1, random.randint(1, 4) + 1):
+        for item_id in range(1, _RNG.randint(1, 4) + 1):
             items.append(
                 (
                     order_id,
                     item_id,
-                    random.choice(product_ids),
-                    random.choice(seller_ids),
+                    _RNG.choice(product_ids),
+                    _RNG.choice(seller_ids),
                     approved,
-                    round(random.uniform(15.0, 800.0), 2),
-                    round(random.uniform(5.0, 60.0), 2),
+                    round(_RNG.uniform(15.0, 800.0), 2),
+                    round(_RNG.uniform(5.0, 60.0), 2),
                 )
             )
         payments.append(
             (
                 order_id,
                 1,
-                random.choice(PAYMENT_TYPES),
-                random.randint(1, 10),
-                round(random.uniform(20.0, 900.0), 2),
+                _RNG.choice(PAYMENT_TYPES),
+                _RNG.randint(1, 10),
+                round(_RNG.uniform(20.0, 900.0), 2),
             )
         )
         reviews.append(
             (
                 _new_id(),
                 order_id,
-                random.randint(1, 5),
+                _RNG.randint(1, 5),
                 None,
                 fake.sentence(nb_words=8),
                 delivered,
-                delivered + timedelta(days=random.randint(1, 3)),
+                delivered + timedelta(days=_RNG.randint(1, 3)),
             )
         )
     return {
