@@ -1,5 +1,10 @@
 name: SonarCloud
 
+# Gatilhos no setup oficial do SonarCloud (PR + push na master) — não é
+# redundância: a análise do PR gera o Quality Gate/decoração do PR, e a da
+# master atualiza o BASELINE contra o qual o "new code" dos próximos PRs é
+# medido. O release.yml também espera o run da master (mesmo commit) antes
+# de taguear — remover o push quebraria o release por timeout.
 on:
   pull_request:
     branches: ["main", "master"]

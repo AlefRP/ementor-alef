@@ -1,17 +1,22 @@
 name: CI
 
+# Gatilhos no padrão de referência (HashiCorp e SonarCloud): pull_request
+# valida o que VAI entrar na master; push na master valida o que ENTROU e
+# aplica a infra (merge-before-apply). Push de branch de trabalho não dispara
+# a esteira — com PR aberto, o par push+pull_request rodava tudo em dobro
+# (grupos de concurrency diferentes). Feedback antes do PR: make quality.
 on:
   push:
-    branches: ["main", "master", "feature/**", "chore/**", "fix/**", "docs/**"]
-  # Critério da story: pipeline roda em todo PR para a main (quality gates;
-  # o job terraform fica de fora de PRs para não expor secrets a forks).
+    branches: ["main", "master"]
   pull_request:
     branches: ["main", "master"]
   workflow_dispatch:
 
+# PRs: um push novo cancela o run anterior. Push na master nunca cancela —
+# interromper um apply no meio deixa a infra em estado parcial.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -130,24 +135,10 @@ jobs:
             htmlcov/
           if-no-files-found: ignore
 
-  terraform:
+  # Gates de Terraform que rodam sem AWS (fmt/validate/tflint/checkov):
+  # em todo PR (inclusive de fork — não usam secrets) e no push da master.
+  terraform-checks:
     runs-on: ubuntu-latest
-    environment: prod
-    # Só em push de branches de trabalho (nunca em PR: secrets protegidos de forks).
-    if: >-
-      github.event_name == 'push' &&
-      (startsWith(github.ref, 'refs/heads/feature/') ||
-       startsWith(github.ref, 'refs/heads/chore/'))
-    needs: [lint, security, test]
-
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
-      TF_ENV: ${{ vars.TF_ENV || 'prod' }}
-
-    # Todos os passos chamam alvos do Makefile (fonte única dos comandos —
-    # o que roda aqui é o mesmo que roda local).
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -156,9 +147,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
-      - name: Resolve target environment
-        run: echo "Usando TF_ENV=$TF_ENV (infra/terraform/environments/$TF_ENV)"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -190,6 +178,40 @@ jobs:
           sarif_file: infra/terraform/results_sarif.sarif
           category: checkov
 
+  # Plan no PR (padrão HashiCorp merge-before-apply: o review do PR inclui o
+  # que o merge fará na infra). Só PRs do próprio repo — fork não recebe
+  # secrets (regra do GitHub), então o job nem tenta autenticar.
+  terraform-plan:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: [lint, security, test, terraform-checks]
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      TF_ENV: ${{ vars.TF_ENV || 'prod' }}
+
+    # Todos os passos chamam alvos do Makefile (fonte única dos comandos —
+    # o que roda aqui é o mesmo que roda local).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Resolve target environment
+        run: echo "Usando TF_ENV=$TF_ENV (infra/terraform/environments/$TF_ENV)"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
       # Bundle offline da API (wheelhouse) para a EC2 privada, entregue via
       # S3 (gateway endpoint na VPC). Roda ANTES do plan: quando o storage já
       # está no state, o plan lê o gate do bundle (data aws_s3_object) — sem o
@@ -206,10 +228,9 @@ jobs:
             echo "::warning::bucket $BUCKET ainda nao existe - rode make tf-apply e re-execute a esteira"
           fi
 
-      # Teste de integração com a AWS: o plan autentica e consulta a conta via
-      # STS, validando credenciais e conectividade reais. O plan é salvo como
-      # artefato (trilha de auditoria do que seria aplicado).
-      - name: Terraform Plan (integração com AWS)
+      # O plan autentica e consulta a conta via STS, validando credenciais e
+      # conectividade reais. Salvo como artefato: é o que o merge vai aplicar.
+      - name: Terraform Plan
         run: make tf-plan-out
 
       - name: Upload Terraform plan
@@ -217,7 +238,73 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: terraform-plan
-          path: |
-            infra/terraform/environments/${{ env.TF_ENV }}/plan.txt
-            infra/terraform/results_sarif.sarif
+          path: infra/terraform/environments/${{ env.TF_ENV }}/plan.txt
           if-no-files-found: ignore
+
+  # Apply automático quando o merge cai na master (merge-before-apply,
+  # https://developer.hashicorp.com/terraform/tutorials/automation/github-actions).
+  # O plan foi revisado no PR; aqui os gates re-rodam sobre o commit de merge,
+  # um plan novo é salvo como auditoria e aplicado EXATAMENTE como salvo
+  # (sem re-planejar entre plan e apply). Voltar atrás: workflow Rollback.
+  terraform-apply:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [lint, security, test, terraform-checks]
+
+    # Mesmo grupo do rollback/destroy: operações sobre o state nunca em
+    # paralelo. Nunca cancelar um apply em andamento.
+    concurrency:
+      group: terraform-state-${{ vars.TF_ENV || 'prod' }}
+      cancel-in-progress: false
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      TF_ENV: ${{ vars.TF_ENV || 'prod' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Resolve target environment
+        run: echo "Usando TF_ENV=$TF_ENV (infra/terraform/environments/$TF_ENV)"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      # Recompila e publica o bundle a partir do commit de merge — o gate da
+      # EC2 (data aws_s3_object) e o etag no user_data leem daqui, e o apply
+      # abaixo entrega a versão da master (sobrescreve bundle de PR anterior).
+      - name: Build e upload do bundle da API
+        run: |
+          make api-bundle
+          BUCKET="${{ vars.ARTIFACTS_BUCKET || 'alef-rp-aws-lakehouse-prod-artifacts' }}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3 cp build/api-bundle.tar.gz "s3://$BUCKET/api/api-bundle.tar.gz"
+          else
+            echo "::warning::bucket $BUCKET ainda nao existe - bootstrap do zero e manual: make tf-apply"
+          fi
+
+      - name: Terraform Plan (auditoria do apply)
+        run: make tf-plan-out
+
+      - name: Upload apply plan (auditoria)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: apply-plan-${{ env.TF_ENV }}-${{ github.run_id }}
+          path: infra/terraform/environments/${{ env.TF_ENV }}/plan.txt
+          if-no-files-found: ignore
+
+      # Aplica exatamente o plan salvo acima.
+      - name: Terraform Apply
+        run: make tf-apply-plan
