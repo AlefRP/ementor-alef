@@ -99,10 +99,30 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a AWS exige que o pool NÃO-reservado fique >= 10; com a quota total da conta em 10, reservar qualquer valor (era 1, 1 e 2) já viola a regra. Assumi a quota padrão de 1000.
 - Regra: em conta free tier, `reserved_concurrent_executions = -1` (sem reserva) como default, exposto em variável. Para limitar consumo de SQS use `scaling_config.maximum_concurrency` no event source mapping — não consome a cota da conta.
 
+## 2026-07-09 · processo · Falha previsível no fim de operação longa precisa de precheck
+- Sintoma: 2x no mesmo dia, `make tf-destroy` sem FORCE rodou ~20 min e falhou no último recurso (BucketNotEmpty) — estado parcial + retrabalho.
+- Causa raiz: a condição de falha (bucket com dados) era conhecível em segundos ANTES do destroy, mas nada a checava; o usuário esquece o FORCE=1 e paga caro.
+- Regra: operação longa com pré-condição verificável ganha precheck fail-fast que aponta o comando certo (alvo `tf-destroy-precheck`); não deixar a AWS descobrir no minuto 20 o que um list de 1s responde.
+
+## 2026-07-09 · terraform · Gate via data source também trava o destroy
+- Sintoma: `make tf-destroy` falhou no refresh — `data.aws_s3_object.bundle` não achou o objeto; infra com bundle ausente ficou indestrutível.
+- Causa raiz: data sources são lidos também no plano de DESTROY; um data source usado como gate de apply vira trava de teardown quando a pré-condição não vale mais.
+- Regra: todo data source-gate precisa de escape (`count = var.validate_* ? 1 : 0`) e os alvos de destroy (tf-destroy, tf-plan-out DESTROY=1) passam a var como false.
+
+## 2026-07-09 · aws · EC2 privada sem SSM/log shipping é indiagnosticável
+- Sintoma: API da camada fria nunca subiu (`Connection refused` na Lambda); a instância não tinha SSH, IP público nem SSM — impossível ler /var/log/user-data.log; destruída, a causa morreu junto.
+- Causa raiz: postura 100% privada sem NENHUM canal de diagnóstico; e o user_data roda 1x sob `set -e` — bundle ausente no boot = instância quebrada e muda.
+- Regra: EC2 privada nasce com Session Manager (managed policy + interface endpoints ssm/ssmmessages/ec2messages) e trap no user_data enviando o log ao S3; `data aws_s3_object` do bundle gate o apply e o etag no user_data força replace no redeploy.
+
 ## 2026-07-09 · terraform · `-var` no destroy não muda atributo lido do state
 - Sintoma: `make tf-destroy` falhou com `BucketNotEmpty` no bucket raw; e `FORCE=1` não teria salvado — o `-var="force_destroy=true"` é ignorado num destroy.
 - Causa raiz: o plano de destroy vem do STATE, não da config. O provider lê `force_destroy` do estado anterior na hora do delete; um `-var` só afeta recursos que o plano vai criar/atualizar.
 - Regra: para deletar bucket com dados, primeiro persista o flag no state (`terraform apply -var="force_destroy=true" -target=module.storage.aws_s3_bucket.layer`, update in-place) e só então destrua. Alvo `tf-force-arm` no Makefile.
+
+## 2026-07-09 · terraform · `force_destroy` não remove versões de bucket versionado
+- Sintoma: `make tf-destroy FORCE=1` falhou com `BucketNotEmpty` mesmo com `force_destroy=true`.
+- Causa raiz: `force_destroy` do Terraform só apaga objetos correntes, não versões/delete markers. Buckets com versionamento habilitado exigem deleção explícita via API S3.
+- Regra: antes de destruir bucket versionado, esvaziar todas as versões + delete markers via `boto3`/`aws s3api` em loop paginado. Adicionar target `tf-empty-buckets` como pré-requisito de `tf-force-arm`.
 
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
