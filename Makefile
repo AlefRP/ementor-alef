@@ -46,9 +46,10 @@ lint: check-format
 # ---- Segurança ----
 # Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
 # disponível sem trocar de formatador; dev-only, só formata código do repo.
+# bandit só lê [tool.bandit] do pyproject com -c explícito.
 security:
 	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
-	bandit -r src simulation -f json
+	bandit -c pyproject.toml -r src simulation -f json
 
 security-deps:
 	safety check
@@ -172,8 +173,14 @@ tf-apply-plan:
 	terraform -chdir=$(TF_DIR) apply -no-color $(TF_PLAN_FILE)
 
 # Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
+# O precheck garante o bundle da API publicado antes do apply (o gate da EC2
+# lê o objeto no S3): bundle ausente -> builda/publica; bucket ausente
+# (bootstrap do zero) -> cria o storage primeiro (fase 1, com confirmação) e
+# publica o bundle — o apply completo abaixo vira a fase 2. Sem o precheck,
+# esses dois estados matavam o apply no meio, após ~12 min de retry do gate.
 tf-apply: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init
+	python scripts/deploy/ensure_api_bundle.py --tf-dir $(TF_DIR) --bucket $(ARTIFACTS_BUCKET)
 	terraform -chdir=$(TF_DIR) apply
 
 tf-output:
