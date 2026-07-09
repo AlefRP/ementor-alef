@@ -47,7 +47,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
       TF_ENV: ${{ inputs.environment }}
-      # FORCE=1 vira -var=force_destroy=true no alvo tf-plan-out do Makefile.
+      # FORCE=1 vira -var=force_destroy=true nos alvos tf-* do Makefile.
       FORCE: ${{ inputs.force && '1' || '' }}
 
     # Passos chamam alvos do Makefile (fonte única dos comandos).
@@ -68,6 +68,13 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
+
+      # O provider lê force_destroy do state ao deletar o bucket: sem gravar o
+      # flag antes, o destroy falha com BucketNotEmpty. Update in-place nos
+      # buckets (-target), nada é criado ou recriado.
+      - name: Armar force_destroy nos buckets
+        if: inputs.force
+        run: make tf-force-arm AUTO_APPROVE=1
 
       - name: Terraform Plan (destroy)
         run: make tf-plan-out DESTROY=1

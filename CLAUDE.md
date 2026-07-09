@@ -23,7 +23,7 @@ make tf-validate tf-lint tf-security   # gates Terraform sem AWS
 make tf-bootstrap-apply                # 1x: cria o bucket de state remoto
 make tf-plan TF_ENV=prod               # autentica na AWS — só quando necessário
 make tf-apply TF_ENV=prod              # apply manual (esteira só faz plan)
-make tf-destroy FORCE=1                # teardown total (FORCE esvazia buckets)
+make tf-destroy FORCE=1                # teardown total (FORCE arma force_destroy e esvazia buckets)
 ```
 
 ## Convenções

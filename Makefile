@@ -5,6 +5,8 @@ TF_ROOT := infra/terraform
 TF_BOOTSTRAP := infra/terraform/bootstrap
 TF_PLAN_FILE ?= tfplan
 CHECKOV_ARGS ?=
+# Recurso alvo do tf-force-arm: os buckets das camadas (todas as instâncias).
+TF_FORCE_TARGET ?= module.storage.aws_s3_bucket.layer
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
@@ -13,7 +15,8 @@ CHECKOV_ARGS ?=
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
-        tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
+        tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output \
+        tf-force-arm tf-destroy \
         quality ci
 
 # ---- Setup ----
@@ -152,7 +155,8 @@ tf-plan: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) plan -no-color
 
 # ---- Alvos da esteira (plan salvo como artefato + apply exato do plan) ----
-# DESTROY=1 planeja a destruição; FORCE=1 permite esvaziar buckets raw/silver.
+# DESTROY=1 planeja a destruição; FORCE=1 mantém a config alinhada ao state —
+# quem de fato libera esvaziar os buckets é o tf-force-arm, antes deste plan.
 # init -reconfigure: o job pode ter rodado tf-validate (backend=false) antes.
 tf-plan-out: event-producer-bundle db-seeder-bundle
 	terraform -chdir=$(TF_DIR) init -reconfigure
@@ -171,10 +175,18 @@ tf-apply: event-producer-bundle db-seeder-bundle
 tf-output:
 	terraform -chdir=$(TF_DIR) output
 
+# O provider lê `force_destroy` do STATE na hora de deletar o bucket — passar
+# -var no destroy não tem efeito. Este alvo grava o flag no state (update
+# in-place, só nos buckets) para que o destroy seguinte possa esvaziá-los.
+# AUTO_APPROVE=1 dispensa a confirmação (uso da esteira).
+tf-force-arm: event-producer-bundle db-seeder-bundle
+	terraform -chdir=$(TF_DIR) init
+	terraform -chdir=$(TF_DIR) apply -var="force_destroy=true" -target=$(TF_FORCE_TARGET) $(if $(AUTO_APPROVE),-auto-approve)
+
 # Destroi TODA a infra do ambiente (terraform pede confirmação digitando "yes").
-# Buckets com dados exigem FORCE=1 (esvazia raw/silver antes de destruir).
+# Buckets com dados exigem FORCE=1 (arma o force_destroy e esvazia raw/silver).
 # O bucket de state (bootstrap) fica de pé por design (prevent_destroy).
-tf-destroy:
+tf-destroy: $(if $(FORCE),tf-force-arm)
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) destroy $(if $(FORCE),-var="force_destroy=true")
 

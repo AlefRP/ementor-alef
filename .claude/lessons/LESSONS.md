@@ -99,6 +99,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a AWS exige que o pool NÃO-reservado fique >= 10; com a quota total da conta em 10, reservar qualquer valor (era 1, 1 e 2) já viola a regra. Assumi a quota padrão de 1000.
 - Regra: em conta free tier, `reserved_concurrent_executions = -1` (sem reserva) como default, exposto em variável. Para limitar consumo de SQS use `scaling_config.maximum_concurrency` no event source mapping — não consome a cota da conta.
 
+## 2026-07-09 · terraform · `-var` no destroy não muda atributo lido do state
+- Sintoma: `make tf-destroy` falhou com `BucketNotEmpty` no bucket raw; e `FORCE=1` não teria salvado — o `-var="force_destroy=true"` é ignorado num destroy.
+- Causa raiz: o plano de destroy vem do STATE, não da config. O provider lê `force_destroy` do estado anterior na hora do delete; um `-var` só afeta recursos que o plano vai criar/atualizar.
+- Regra: para deletar bucket com dados, primeiro persista o flag no state (`terraform apply -var="force_destroy=true" -target=module.storage.aws_s3_bucket.layer`, update in-place) e só então destrua. Alvo `tf-force-arm` no Makefile.
+
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.
