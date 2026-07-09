@@ -2,9 +2,10 @@
 
 Agendada via EventBridge e FORA da VPC de propósito: o SQS não tem gateway
 endpoint gratuito, e daqui a fila é alcançada pelo endpoint público da AWS
-sem custo de rede. Gera eventos coerentes com o domínio Olist usando apenas
-a stdlib (nada para empacotar) e publica em lotes de até 10 mensagens
-(``send_message_batch``). Módulo autocontido para o zip de deploy.
+com TLS + IAM (a policy da fila nega conexões não-TLS). Gera eventos coerentes
+com o domínio Olist usando **Faker** (locale pt_BR) para nomes, cidades e
+produtos realistas, e publica em lotes de até 10 mensagens
+(``send_message_batch``). O Faker é empacotado no zip (ver make hot-producer-bundle).
 """
 import json
 import logging
@@ -14,14 +15,16 @@ import uuid
 from datetime import datetime, timezone
 
 import boto3
+from faker import Faker
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 SQS_BATCH_MAX = 10
 
-# Vocabulário amostrado do próprio dataset Olist — eventos realistas sem
-# depender de bibliotecas de dados fake.
+# Vocabulário do próprio dataset Olist — mantém os eventos da camada quente
+# consistentes com os dados do RDS (mesmo espaço de categorias/UFs), para um
+# ETL raw->silver->gold que junta as duas camadas fazer sentido.
 ORDER_STATUSES = ('created', 'approved', 'invoiced', 'shipped', 'delivered')
 PAYMENT_TYPES = ('credit_card', 'boleto', 'voucher', 'debit_card', 'pix')
 PRODUCT_CATEGORIES = (
@@ -38,7 +41,9 @@ PRODUCT_CATEGORIES = (
 )
 CUSTOMER_STATES = ('SP', 'RJ', 'MG', 'RS', 'PR', 'SC', 'BA', 'DF', 'GO', 'ES')
 
-# SystemRandom: fonte do SO, sem estado global compartilhado entre invocações.
+# Faker pt_BR reaproveitado entre invocações warm; SystemRandom para escolhas
+# de vocabulário fixo (fonte do SO, sem estado global compartilhado).
+_FAKE = Faker('pt_BR')
 _RNG = random.SystemRandom()
 
 _SQS = None
@@ -66,10 +71,17 @@ def _new_event(moment: datetime) -> dict:
         'event_id': str(uuid.uuid4()),
         'event_type': f'order_{_RNG.choice(ORDER_STATUSES)}',
         'event_timestamp': moment.isoformat(),
+        'customer': {
+            'customer_unique_id': uuid.uuid4().hex,
+            'customer_name': _FAKE.name(),
+            'customer_city': _FAKE.city(),
+            'customer_state': _RNG.choice(CUSTOMER_STATES),
+            'customer_zip_code_prefix': _FAKE.postcode()[:5],
+        },
         'order': {
             'order_id': uuid.uuid4().hex,
-            'customer_state': _RNG.choice(CUSTOMER_STATES),
             'product_category_name': _RNG.choice(PRODUCT_CATEGORIES),
+            'product_name': _FAKE.word().capitalize(),
             'items_count': _RNG.randint(1, 4),
             'price': round(_RNG.uniform(15.0, 800.0), 2),
             'freight_value': round(_RNG.uniform(5.0, 60.0), 2),

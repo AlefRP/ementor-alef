@@ -9,6 +9,7 @@ CHECKOV_ARGS ?=
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
+        hot-producer-bundle release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
         tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output tf-destroy \
@@ -79,6 +80,27 @@ api-bundle:
 	pip wheel --wheel-dir build/api-bundle/wheelhouse ".[api]"
 	tar -czf build/api-bundle.tar.gz -C build/api-bundle wheelhouse
 
+# Empacota o producer da camada quente (Faker + handler) no diretório que o
+# módulo hot_ingestion zipa (archive_file source_dir). `terraform validate` não
+# executa archive_file, então só `tf-plan`/`tf-apply` dependem deste alvo.
+# Script Python (não shell) para rodar igual no Windows e no Ubuntu do CI.
+hot-producer-bundle:
+	python scripts/bundle/hot_producer_bundle.py
+
+# ---- Release (CD) ----
+# Fonte unica da versao: pyproject.toml ([project].version). Calcula a
+# proxima versao semver a partir de Conventional Commits desde a ultima tag
+# vX.Y.Z (grava outputs em $GITHUB_OUTPUT no CI; imprime no stdout em
+# dry-run local). Ver scripts/release/release.py para o racional completo.
+release-plan:
+	python scripts/release/release.py plan
+
+# Aplica o bump decidido pelo release-plan: version = "..." em
+# pyproject.toml + entrada nova em CHANGELOG.md. VERSION e obrigatorio, ex.:
+# make release-apply VERSION=1.2.0
+release-apply:
+	python scripts/release/release.py apply --version $(VERSION)
+
 # ---- Infraestrutura (Terraform) ----
 # Bootstrap do state remoto: apply ÚNICO com state local (cria o bucket que os
 # ambientes usam como backend). Rode antes do primeiro tf-init/tf-plan.
@@ -110,14 +132,14 @@ tf-security:
 tf-init:
 	terraform -chdir=$(TF_DIR) init
 
-tf-plan:
+tf-plan: hot-producer-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) plan -no-color
 
 # ---- Alvos da esteira (plan salvo como artefato + apply exato do plan) ----
 # DESTROY=1 planeja a destruição; FORCE=1 permite esvaziar buckets raw/silver.
 # init -reconfigure: o job pode ter rodado tf-validate (backend=false) antes.
-tf-plan-out:
+tf-plan-out: hot-producer-bundle
 	terraform -chdir=$(TF_DIR) init -reconfigure
 	terraform -chdir=$(TF_DIR) plan -no-color $(if $(DESTROY),-destroy) $(if $(FORCE),-var="force_destroy=true") -out=$(TF_PLAN_FILE)
 	terraform -chdir=$(TF_DIR) show -no-color $(TF_PLAN_FILE) > $(TF_DIR)/plan.txt
@@ -127,7 +149,7 @@ tf-apply-plan:
 	terraform -chdir=$(TF_DIR) apply -no-color $(TF_PLAN_FILE)
 
 # Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
-tf-apply:
+tf-apply: hot-producer-bundle
 	terraform -chdir=$(TF_DIR) init
 	terraform -chdir=$(TF_DIR) apply
 
