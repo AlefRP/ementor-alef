@@ -87,6 +87,29 @@ def test_sqs_queues_are_encrypted(resources):
         ), f'{queue.address}: fila sem SSE'
 
 
+def test_sqs_enforces_tls_in_transit(resources, terraform_blocks):
+    """Criptografia em trânsito: toda fila SQS tem policy negando não-TLS.
+
+    Sem VPC endpoint (custo zero), o acesso à fila é travado a HTTPS/TLS via
+    statement Deny com aws:SecureTransport=false — padrão AWS de segurança.
+    """
+    queue_policies = _by_type(resources, 'aws_sqs_queue_policy')
+    assert len(queue_policies) >= 2, 'esperava policy TLS-only na fila e na DLQ'
+
+    deny_docs = [
+        b
+        for b in terraform_blocks
+        if b.type == 'aws_iam_policy_document'
+        and 'aws:SecureTransport' in b.body
+        and re.search(r'values\s*=\s*\[\s*"false"', b.body)
+    ]
+    assert len(deny_docs) >= 2, 'esperava Deny non-TLS para a fila e a DLQ'
+    for doc in deny_docs:
+        assert re.search(
+            r'effect\s*=\s*"Deny"', doc.body
+        ), f'{doc.address}: SecureTransport deve ser um statement Deny'
+
+
 def test_events_queue_has_dlq(resources):
     """A fila de eventos tem redrive policy apontando para a DLQ."""
     queues = _by_type(resources, 'aws_sqs_queue')
@@ -152,6 +175,34 @@ def test_sqs_mapping_reports_batch_item_failures(resources):
         assert (
             'ReportBatchItemFailures' in mapping.body
         ), f'{mapping.address}: sem ReportBatchItemFailures'
+
+
+def test_api_traffic_is_tls_encrypted(terraform_dir, resources):
+    """Criptografia em trânsito: API serve HTTPS e a Lambda verifica a CA.
+
+    Cert self-signed (custo zero) gerado no apply; uvicorn sobe com --ssl-*
+    e a Lambda de ingestão recebe a CA embarcada (API_CA_FILE) para validar.
+    """
+    user_data = (
+        terraform_dir / 'modules' / 'api_ec2' / 'templates' / 'user_data.sh.tpl'
+    ).read_text(encoding='utf-8')
+    assert '--ssl-certfile' in user_data and '--ssl-keyfile' in user_data, (
+        'uvicorn deve servir HTTPS (--ssl-certfile/--ssl-keyfile)'
+    )
+
+    certs = _by_type(resources, 'tls_self_signed_cert')
+    assert certs, 'esperava cert TLS self-signed para a API'
+
+    cold_lambdas = [
+        f
+        for f in _by_type(resources, 'aws_lambda_function')
+        if 'API_BASE_URL' in f.body
+    ]
+    assert cold_lambdas, 'esperava a Lambda de ingestão fria (chama a API)'
+    for fn in cold_lambdas:
+        assert (
+            'API_CA_FILE' in fn.body
+        ), f'{fn.address}: sem API_CA_FILE (verificação do TLS da API)'
 
 
 def test_ec2_api_is_private_encrypted_and_imdsv2(resources):

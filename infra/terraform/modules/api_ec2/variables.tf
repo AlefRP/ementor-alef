@@ -13,6 +13,11 @@ variable "security_group_id" {
   type        = string
 }
 
+variable "private_ip" {
+  description = "IP privado FIXO da EC2 — vira SAN do cert TLS self-signed e base da URL HTTPS que a Lambda verifica."
+  type        = string
+}
+
 variable "instance_profile_name" {
   description = "Instance profile com a role ec2-api (módulo governance)."
   type        = string

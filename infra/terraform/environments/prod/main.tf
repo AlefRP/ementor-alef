@@ -67,6 +67,7 @@ module "api_cold" {
 
   prefix                = local.prefix
   subnet_id             = module.network.private_subnet_ids[0]
+  private_ip            = cidrhost(module.network.private_subnet_cidrs[0], 20) # fixo p/ SAN do cert
   security_group_id     = module.network.api_security_group_id
   instance_profile_name = module.governance.ec2_api_instance_profile_name
   api_port              = var.api_port
@@ -87,7 +88,8 @@ module "ingestion_cold" {
   subnet_ids          = module.network.private_subnet_ids
   security_group_id   = module.network.lambda_ingest_security_group_id
   raw_bucket          = module.storage.bucket_ids["raw"]
-  api_base_url        = "http://${module.api_cold.private_dns}:${var.api_port}"
+  api_base_url        = module.api_cold.base_url # HTTPS pelo IP privado fixo
+  api_ca_pem          = module.api_cold.ca_pem
   schedule_expression = var.ingest_schedule
   tags                = local.tags
 }
@@ -96,11 +98,11 @@ module "ingestion_cold" {
 module "ingestion_hot" {
   source = "../../modules/hot_ingestion"
 
-  prefix            = local.prefix
-  producer_source   = "${path.module}/../../../../src/hot/event_producer/handler.py"
-  ingest_source     = "${path.module}/../../../../src/hot/lambda_raw_ingest/handler.py"
-  producer_role_arn = module.governance.lambda_event_producer_role_arn
-  ingest_role_arn   = module.governance.lambda_ingest_hot_role_arn
+  prefix             = local.prefix
+  producer_build_dir = "${path.module}/../../../../build/hot-producer"
+  ingest_source      = "${path.module}/../../../../src/hot/lambda_raw_ingest/handler.py"
+  producer_role_arn  = module.governance.lambda_event_producer_role_arn
+  ingest_role_arn    = module.governance.lambda_ingest_hot_role_arn
 
   events_queue_url  = module.messaging.events_queue_url
   events_queue_arn  = module.messaging.events_queue_arn

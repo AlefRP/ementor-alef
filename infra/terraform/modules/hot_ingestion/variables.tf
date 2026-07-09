@@ -3,8 +3,8 @@ variable "prefix" {
   type        = string
 }
 
-variable "producer_source" {
-  description = "Caminho do handler.py do producer (zipado pelo módulo)."
+variable "producer_build_dir" {
+  description = "Diretório do producer empacotado (handler + Faker); ver make hot-producer-bundle."
   type        = string
 }
 
@@ -76,6 +76,18 @@ variable "ingest_max_concurrency" {
   description = "Concorrência máxima da ingestão (mínimo 2 no SQS mapping)."
   type        = number
   default     = 2
+}
+
+variable "producer_reserved_concurrency" {
+  description = "Concorrência reservada do producer (-1 = sem reserva). Padrão -1: free tier limita a concorrência total a 10 e a AWS exige pool não-reservado >= 10."
+  type        = number
+  default     = -1
+}
+
+variable "ingest_reserved_concurrency" {
+  description = "Concorrência reservada da ingestão quente (-1 = sem reserva). O cap de escala do SQS fica no event source mapping (scaling_config)."
+  type        = number
+  default     = -1
 }
 
 variable "ingest_timeout_seconds" {

@@ -13,6 +13,11 @@ output "private_subnet_ids" {
   value       = aws_subnet.private[*].id
 }
 
+output "private_subnet_cidrs" {
+  description = "CIDRs das subnets privadas (p/ IP fixo da API no cert TLS)."
+  value       = aws_subnet.private[*].cidr_block
+}
+
 output "api_security_group_id" {
   description = "SG das EC2 de API."
   value       = aws_security_group.api.id

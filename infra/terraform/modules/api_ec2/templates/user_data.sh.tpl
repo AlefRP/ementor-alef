@@ -14,6 +14,15 @@ tar -xzf /opt/lakehouse/bundle.tar.gz -C /opt/lakehouse
 python3.11 -m venv /opt/lakehouse/.venv
 /opt/lakehouse/.venv/bin/pip install --no-index \
   --find-links /opt/lakehouse/wheelhouse 'aws-lakehouse-mentoria[api]'
+
+# TLS self-signed gerado pelo Terraform (SAN = IP privado): uvicorn serve HTTPS,
+# a Lambda de ingestao verifica contra a mesma CA. Chave 0600 (so o servico le).
+mkdir -p /opt/lakehouse/certs
+cat > /opt/lakehouse/certs/api.crt <<'CERT'
+${tls_cert_pem}CERT
+cat > /opt/lakehouse/certs/api.key <<'KEY'
+${tls_key_pem}KEY
+chmod 600 /opt/lakehouse/certs/api.key
 chown -R ec2-user:ec2-user /opt/lakehouse
 
 cat > /etc/systemd/system/api-orders.service <<UNIT
@@ -29,7 +38,7 @@ Environment=PGPORT=${pgport}
 Environment=PGDATABASE=${pgdatabase}
 Environment=PGUSER=${pguser}
 Environment=AWS_DEFAULT_REGION=${aws_region}
-ExecStart=/opt/lakehouse/.venv/bin/uvicorn src.cold.api_orders.main:app --host 0.0.0.0 --port ${api_port}
+ExecStart=/opt/lakehouse/.venv/bin/uvicorn src.cold.api_orders.main:app --host 0.0.0.0 --port ${api_port} --ssl-certfile /opt/lakehouse/certs/api.crt --ssl-keyfile /opt/lakehouse/certs/api.key
 Restart=always
 RestartSec=5
 User=ec2-user

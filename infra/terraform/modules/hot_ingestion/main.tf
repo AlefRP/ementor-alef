@@ -5,9 +5,11 @@
 # grava na raw via gateway endpoint com ReportBatchItemFailures.
 
 # ---------- Producer (EventBridge -> SQS) ----------
+# Zipa o diretório com handler + Faker (make hot-producer-bundle). archive_file
+# roda no plan/apply (não no validate), então o build só é exigido ali.
 data "archive_file" "producer" {
   type        = "zip"
-  source_file = var.producer_source
+  source_dir  = var.producer_build_dir
   output_path = "${path.module}/build/${var.prefix}-event-producer.zip"
 }
 
@@ -37,7 +39,9 @@ resource "aws_lambda_function" "producer" {
   timeout     = 60
   memory_size = 128
 
-  reserved_concurrent_executions = 1
+  # -1 (sem reserva) por padrão: cabe na quota do free tier. O EventBridge já
+  # dispara uma execução por vez na cadência configurada.
+  reserved_concurrent_executions = var.producer_reserved_concurrency
 
   tracing_config {
     mode = "Active"
@@ -108,7 +112,10 @@ resource "aws_lambda_function" "ingest" {
   timeout     = var.ingest_timeout_seconds
   memory_size = 256
 
-  reserved_concurrent_executions = var.ingest_max_concurrency
+  # -1 (sem reserva) por padrão: o teto de concorrência do consumo de SQS é
+  # aplicado no event source mapping (scaling_config.maximum_concurrency),
+  # que não consome a cota de concorrência reservada da conta.
+  reserved_concurrent_executions = var.ingest_reserved_concurrency
 
   tracing_config {
     mode = "Active"

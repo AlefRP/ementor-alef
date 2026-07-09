@@ -29,7 +29,12 @@ variable "raw_bucket" {
 }
 
 variable "api_base_url" {
-  description = "URL privada da API de pedidos (http://<dns-privado>:<porta>)."
+  description = "URL privada da API de pedidos (https://<ip-privado>:<porta>)."
+  type        = string
+}
+
+variable "api_ca_pem" {
+  description = "Certificado (CA) self-signed da API, embarcado no zip p/ verificar o TLS."
   type        = string
 }
 
@@ -61,6 +66,12 @@ variable "timeout_seconds" {
   description = "Timeout da função."
   type        = number
   default     = 300
+}
+
+variable "reserved_concurrency" {
+  description = "Concorrência reservada (-1 = sem reserva). Padrão -1: contas free tier limitam a concorrência total a 10 e a AWS exige o pool não-reservado >= 10, então qualquer reserva falha. Suba a quota (Service Quotas) p/ usar > 0."
+  type        = number
+  default     = -1
 }
 
 variable "memory_mb" {
