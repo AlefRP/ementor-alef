@@ -74,6 +74,21 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: `sonar-project.properties` com projectKey/organization que não existem no SonarCloud; as chaves devem ser copiadas do produto.
 - Regra: copiar Project Key e Organization Key da tela Information do projeto; dá para validar sem login via `api/components/search_projects` (projetos públicos).
 
+## 2026-07-09 · tool · Receita de Makefile com comandos Unix quebra no Windows
+- Sintoma: `make tf-apply` falhou no PowerShell do usuário — `rm -rf build/hot-producer` → "CreateProcess(NULL, rm -rf ...) failed" (e=2).
+- Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
+- Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
+
+## 2026-07-09 · tool · Padrão `build/` do .gitignore engole `scripts/build/`
+- Sintoma: `git add scripts/build/` recusou ("paths are ignored by one of your .gitignore files").
+- Causa raiz: `build/` no .gitignore é padrão sem âncora — casa com QUALQUER diretório `build` na árvore, não só o da raiz.
+- Regra: não nomeie diretórios de código como `build`/`dist`; ou ancore o ignore (`/build/`). Movi para `scripts/bundle/`.
+
+## 2026-07-09 · aws · Free tier novo limita concorrência total de Lambda a 10
+- Sintoma: `terraform apply` falhou nas 3 Lambdas: `InvalidParameterValueException: Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution below its minimum value of [10]`.
+- Causa raiz: a AWS exige que o pool NÃO-reservado fique >= 10; com a quota total da conta em 10, reservar qualquer valor (era 1, 1 e 2) já viola a regra. Assumi a quota padrão de 1000.
+- Regra: em conta free tier, `reserved_concurrent_executions = -1` (sem reserva) como default, exposto em variável. Para limitar consumo de SQS use `scaling_config.maximum_concurrency` no event source mapping — não consome a cota da conta.
+
 ## 2026-07-06 · processo · Makefile referencia alvo antes de ele existir
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.
