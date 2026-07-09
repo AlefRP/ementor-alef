@@ -186,9 +186,9 @@ def test_api_traffic_is_tls_encrypted(terraform_dir, resources):
     user_data = (
         terraform_dir / 'modules' / 'api_ec2' / 'templates' / 'user_data.sh.tpl'
     ).read_text(encoding='utf-8')
-    assert '--ssl-certfile' in user_data and '--ssl-keyfile' in user_data, (
-        'uvicorn deve servir HTTPS (--ssl-certfile/--ssl-keyfile)'
-    )
+    assert (
+        '--ssl-certfile' in user_data and '--ssl-keyfile' in user_data
+    ), 'uvicorn deve servir HTTPS (--ssl-certfile/--ssl-keyfile)'
 
     certs = _by_type(resources, 'tls_self_signed_cert')
     assert certs, 'esperava cert TLS self-signed para a API'
