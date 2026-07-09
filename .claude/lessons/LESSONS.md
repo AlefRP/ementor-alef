@@ -79,6 +79,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
 - Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
 
+## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local
+- Sintoma: `make check-format` quebrou no CI (`would reformat tests/taac/test_terraform_static.py`) depois que eu declarei o código formatado sem conseguir rodar o blue (crash no Python 3.14 local).
+- Causa raiz: assumi o estilo do black para `assert cond, msg` — ele envolve a CONDIÇÃO em parênteses, não a mensagem. Ausência de ferramenta virou suposição.
+- Regra: se o formatador não roda na versão local do Python, rode na versão do CI com `uv run --python 3.11 --with blue==0.9.1 --no-project blue --check src tests`. Nunca dizer "formatado" sem executar o gate.
+
 ## 2026-07-09 · python · `pip wheel` compila para o host, não para o alvo do deploy
 - Sintoma: `make api-bundle` no Windows gerava wheels `win_amd64` (psycopg[binary], pydantic-core); o `pip install --no-index` do user_data na EC2 (AL2023 x86_64/py3.11) falharia — bundle que "builda" mas não deploya.
 - Causa raiz: `pip wheel` resolve para a plataforma corrente e NÃO aceita `--platform`. Só `pip download` aceita alvo cruzado (exige `--only-binary=:all:`).
