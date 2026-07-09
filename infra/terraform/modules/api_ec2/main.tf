@@ -10,10 +10,11 @@ data "aws_ssm_parameter" "al2023_ami" {
 
 # O user_data instala o bundle no PRIMEIRO boot e nunca roda de novo: sem o
 # bundle publicado, a instância nasceria quebrada e silenciosa. Este data
-# source corta o problema na raiz: o apply falha aqui, antes de criar a EC2
-# (bootstrap do zero é em 2 passos: apply cria o bucket e para aqui ->
-# make api-bundle-upload -> novo apply). O etag entra no user_data, então
-# bundle novo => user_data muda => a instância é substituída no próximo apply.
+# source corta o problema na raiz: o apply falha aqui, antes de criar a EC2.
+# `make tf-apply` garante a pré-condição via scripts/deploy/ensure_api_bundle.py
+# (no bootstrap do zero cria o storage primeiro e publica o bundle antes do
+# apply completo). O etag entra no user_data, então bundle novo => user_data
+# muda => a instância é substituída no próximo apply.
 # Data sources também são lidos no refresh do DESTROY: sem o count abaixo,
 # bundle ausente tornaria a infra indestrutível (os alvos tf-destroy e
 # tf-plan-out DESTROY=1 passam validate_bundle=false).

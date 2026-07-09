@@ -190,15 +190,12 @@ jobs:
           sarif_file: infra/terraform/results_sarif.sarif
           category: checkov
 
-      # Teste de integração com a AWS: o plan autentica e consulta a conta via
-      # STS, validando credenciais e conectividade reais. O plan é salvo como
-      # artefato (trilha de auditoria do que seria aplicado).
-      - name: Terraform Plan (integração com AWS)
-        run: make tf-plan-out
-
       # Bundle offline da API (wheelhouse) para a EC2 privada, entregue via
-      # S3 (gateway endpoint na VPC). Enquanto o apply manual não criar o
-      # bucket de artefatos, o passo avisa e segue.
+      # S3 (gateway endpoint na VPC). Roda ANTES do plan: quando o storage já
+      # está no state, o plan lê o gate do bundle (data aws_s3_object) — sem o
+      # objeto no bucket, o plan falharia. Enquanto o apply manual não criar o
+      # bucket de artefatos, o passo avisa e segue (com state vazio o gate é
+      # adiado para o apply e o plan passa).
       - name: Build e upload do bundle da API
         run: |
           make api-bundle
@@ -208,6 +205,12 @@ jobs:
           else
             echo "::warning::bucket $BUCKET ainda nao existe - rode make tf-apply e re-execute a esteira"
           fi
+
+      # Teste de integração com a AWS: o plan autentica e consulta a conta via
+      # STS, validando credenciais e conectividade reais. O plan é salvo como
+      # artefato (trilha de auditoria do que seria aplicado).
+      - name: Terraform Plan (integração com AWS)
+        run: make tf-plan-out
 
       - name: Upload Terraform plan
         if: always()
