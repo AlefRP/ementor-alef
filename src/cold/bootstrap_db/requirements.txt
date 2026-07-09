@@ -1,0 +1,5 @@
+# Deps empacotadas no zip da Lambda de bootstrap.
+# psycopg[binary] traz a libpq embutida (a Lambda nao tem pacote do SO);
+# faker gera os dados sinteticos. boto3 nao e usado aqui.
+psycopg[binary]==3.3.4
+faker==38.2.0

@@ -23,9 +23,9 @@ variable "api_port" {
 }
 
 variable "ingest_schedule" {
-  description = "Agenda (EventBridge) da Lambda de ingestão fria."
+  description = "Agenda (EventBridge) da Lambda de ingestão fria. Horária no lab: regras rate() só disparam depois de um intervalo completo, e 1 dia deixava o pipeline inobservável."
   type        = string
-  default     = "rate(1 day)"
+  default     = "rate(1 hour)"
 }
 
 variable "hot_schedule" {

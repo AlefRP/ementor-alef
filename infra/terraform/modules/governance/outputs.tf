@@ -18,6 +18,11 @@ output "lambda_event_producer_role_arn" {
   value       = aws_iam_role.lambda_event_producer.arn
 }
 
+output "lambda_bootstrap_db_role_arn" {
+  description = "Role da Lambda de bootstrap do banco (VPC + logs)."
+  value       = aws_iam_role.lambda_bootstrap_db.arn
+}
+
 output "glue_job_role_arn" {
   description = "Role do job Glue raw->silver."
   value       = aws_iam_role.glue_job.arn

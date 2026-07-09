@@ -181,6 +181,35 @@ resource "aws_vpc_security_group_egress_rule" "lambda_hot_to_s3" {
   ip_protocol       = "tcp"
 }
 
+# SG da Lambda de bootstrap do banco: roda na VPC só para alcançar o RDS
+# (o RDS é privado e a EC2 não chega ao Secrets Manager). Sem entrada.
+resource "aws_security_group" "lambda_bootstrap" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (bootstrap_db); o grafo do checkov nao cruza modulos
+  name        = "${var.prefix}-lambda-bootstrap"
+  description = "Lambda de bootstrap do banco (VPC) - conecta no RDS"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.prefix}-lambda-bootstrap-sg" })
+}
+
+resource "aws_vpc_security_group_egress_rule" "lambda_bootstrap_to_database" {
+  security_group_id            = aws_security_group.lambda_bootstrap.id
+  description                  = "PostgreSQL no RDS (schema, seed e api_reader)"
+  referenced_security_group_id = aws_security_group.database.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "database_from_bootstrap" {
+  security_group_id            = aws_security_group.database.id
+  description                  = "PostgreSQL a partir da Lambda de bootstrap"
+  referenced_security_group_id = aws_security_group.lambda_bootstrap.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+}
+
 # A API só aceita a porta privada vinda do SG da Lambda (tráfego intra-VPC).
 resource "aws_vpc_security_group_ingress_rule" "api_from_lambda" {
   security_group_id            = aws_security_group.api.id

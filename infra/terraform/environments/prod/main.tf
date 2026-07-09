@@ -61,6 +61,32 @@ module "governance" {
   tags                  = local.tags
 }
 
+# Senha do master do RDS (secret gerenciado). Lida aqui, no apply, e injetada
+# como env var da Lambda de bootstrap — a única forma de semear o banco sem um
+# interface endpoint pago de Secrets Manager. O state já é cifrado no S3.
+data "aws_secretsmanager_secret_version" "rds_master" {
+  secret_id = module.database.master_user_secret_arn
+}
+
+# ---- Bootstrap do banco: schema + seed sintético + usuário api_reader ----
+module "bootstrap_db" {
+  source = "../../modules/bootstrap_db"
+
+  prefix            = local.prefix
+  build_dir         = "${path.module}/../../../../build/bootstrap-db"
+  role_arn          = module.governance.lambda_bootstrap_db_role_arn
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.lambda_bootstrap_security_group_id
+
+  pghost     = module.database.address
+  pgport     = module.database.port
+  pgdatabase = module.database.db_name
+  pguser     = module.database.master_username
+  pgpassword = jsondecode(data.aws_secretsmanager_secret_version.rds_master.secret_string)["password"]
+
+  tags = local.tags
+}
+
 # ---- Camada fria: API privada (EC2) + Lambda de ingestão agendada ----
 module "api_cold" {
   source = "../../modules/api_ec2"

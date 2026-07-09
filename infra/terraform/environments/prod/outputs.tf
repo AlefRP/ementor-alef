@@ -8,6 +8,11 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
+output "bootstrap_db_function_name" {
+  description = "Lambda que aplica schema, semeia o RDS e cria o api_reader (make seed-db)."
+  value       = module.bootstrap_db.function_name
+}
+
 output "buckets" {
   description = "Buckets por camada (raw, silver)."
   value       = module.storage.bucket_ids
