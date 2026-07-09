@@ -54,7 +54,7 @@ iac = [
 # src/ é o pacote raiz importável (tests usam `from src.cold...`); sem isto o
 # setuptools trataria src/ como src-layout e instalaria cold/hot como top-level.
 [tool.setuptools.packages.find]
-include = ["src", "src.*", "synthetic", "synthetic.*"]
+include = ["src", "src.*", "simulation", "simulation.*"]
 
 [tool.blue]
 line-length = 88
@@ -62,7 +62,7 @@ line-length = 88
 [tool.isort]
 profile = "black"
 line_length = 88
-src_paths = ["src", "synthetic", "tests"]
+src_paths = ["src", "simulation", "tests"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "build"]

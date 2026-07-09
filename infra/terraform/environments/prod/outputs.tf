@@ -8,9 +8,9 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
-output "bootstrap_db_function_name" {
-  description = "Lambda que aplica schema, semeia o RDS e cria o api_reader (make seed-db)."
-  value       = module.bootstrap_db.function_name
+output "db_seeder_function_name" {
+  description = "Simulação: Lambda que aplica schema, semeia o RDS e cria o api_reader (make seed-db)."
+  value       = module.sim_db_seeder.function_name
 }
 
 output "buckets" {
@@ -44,8 +44,8 @@ output "ingest_cold_function" {
 }
 
 output "event_producer_function" {
-  description = "Lambda produtora de eventos sintéticos (camada quente)."
-  value       = module.ingestion_hot.producer_function_name
+  description = "Simulação: Lambda que publica eventos sintéticos no SQS."
+  value       = module.sim_event_producer.function_name
 }
 
 output "ingest_hot_function" {

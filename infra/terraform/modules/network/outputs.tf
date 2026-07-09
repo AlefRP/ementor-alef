@@ -38,9 +38,9 @@ output "lambda_hot_security_group_id" {
   value       = aws_security_group.lambda_hot.id
 }
 
-output "lambda_bootstrap_security_group_id" {
-  description = "SG da Lambda de bootstrap do banco (VPC)."
-  value       = aws_security_group.lambda_bootstrap.id
+output "lambda_db_seeder_security_group_id" {
+  description = "SG da Lambda de seed do banco (simulação, VPC)."
+  value       = aws_security_group.lambda_db_seeder.id
 }
 
 output "s3_endpoint_prefix_list_id" {

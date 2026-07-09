@@ -1,6 +1,6 @@
 """Simulação dos eventos de pedido da camada quente (SQS).
 
-Reusa o vocabulário de ``synthetic/olist.py`` (categorias, UFs, tipos de
+Reusa o vocabulário de ``simulation/olist.py`` (categorias, UFs, tipos de
 pagamento) para que os eventos publicados na fila fiquem no mesmo domínio das
 tabelas do RDS — condição para o ETL unir as camadas quente e fria.
 

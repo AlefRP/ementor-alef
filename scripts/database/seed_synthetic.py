@@ -3,7 +3,7 @@
 (``seed_olist.sh``) quando se quer volume controlável e independência de fonte
 externa.
 
-A simulação dos dados vive em ``synthetic/olist.py`` (compartilhada com a Lambda
+A simulação dos dados vive em ``simulation/olist.py`` (compartilhada com a Lambda
 de bootstrap, que é o caminho usado quando o RDS é privado). Este script é o
 atalho para quem JÁ tem rota de rede até o banco (bastion ou túnel).
 
@@ -31,7 +31,7 @@ import psycopg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from synthetic import olist  # noqa: E402
+from simulation import olist  # noqa: E402
 
 SCHEMA_SQL = Path(__file__).parent / 'olist_schema.sql'
 

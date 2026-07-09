@@ -1,11 +1,11 @@
 """Simulação das tabelas do Olist (Faker) e carga em massa via COPY.
 
 Alimenta o RDS de origem da camada fria — pela Lambda de bootstrap
-(``src/cold/bootstrap_db/handler.py``) ou pelo CLI
+(``simulation/db_seeder/handler.py``) ou pelo CLI
 ``scripts/database/seed_synthetic.py``.
 
 O vocabulário abaixo (categorias, UFs, tipos de pagamento) é a **fonte única**
-também dos eventos da camada quente (``synthetic/events.py``): é o que permite
+também dos eventos da camada quente (``simulation/events.py``): é o que permite
 a um ETL futuro unir as duas camadas com domínios compatíveis.
 
 Geração pura, separada do I/O: as funções ``gen_*`` só devolvem tuplas; quem

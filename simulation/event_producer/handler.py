@@ -4,7 +4,7 @@ Agendada via EventBridge e FORA da VPC de propósito: o SQS não tem gateway
 endpoint gratuito, e daqui a fila é alcançada pelo endpoint público da AWS
 com TLS + IAM (a policy da fila nega conexões não-TLS).
 
-A geração dos eventos vive em ``synthetic/events.py`` (simulação, empacotada
+A geração dos eventos vive em ``simulation/events.py`` (simulação, empacotada
 no zip junto com o Faker — ver ``make hot-producer-bundle``); aqui fica só a
 orquestração: montar lotes de até 10 e publicar com ``send_message_batch``.
 """
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import boto3
 
-from synthetic.events import new_event
+from ..events import new_event
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

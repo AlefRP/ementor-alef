@@ -116,71 +116,17 @@ resource "aws_iam_role_policy_attachment" "lambda_hot_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# ---------- Lambda (camada quente: EventBridge -> producer -> SQS) ----------
-# Producer de eventos sintéticos: roda FORA da VPC (o SQS não tem gateway
-# endpoint gratuito) e só pode publicar na fila de eventos.
-resource "aws_iam_role" "lambda_event_producer" {
-  name               = "${var.prefix}-lambda-event-producer"
-  description        = "Lambda produtora de eventos sinteticos - publica no SQS"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-
-  tags = var.tags
-}
-
-data "aws_iam_policy_document" "publish_events_only" {
-  statement {
-    sid       = "PublishEvents"
-    actions   = ["sqs:SendMessage"]
-    resources = [var.events_queue_arn]
-  }
-}
-
-resource "aws_iam_role_policy" "lambda_producer_sqs" {
-  name   = "publish-events-only"
-  role   = aws_iam_role.lambda_event_producer.id
-  policy = data.aws_iam_policy_document.publish_events_only.json
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_producer_logs" {
-  role       = aws_iam_role.lambda_event_producer.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-# X-Ray ativo nas três Lambdas (tracing_config Active exige estas permissões;
+# X-Ray nas Lambdas da arquitetura (tracing_config Active exige estas permissões;
 # managed policy do serviço — dados continuam restritos pelas policies acima).
+# As Lambdas de simulação levam o X-Ray na própria role (modules/simulation).
 resource "aws_iam_role_policy_attachment" "lambda_xray" {
   for_each = {
-    cold     = aws_iam_role.lambda_ingest_cold.name
-    hot      = aws_iam_role.lambda_ingest_hot.name
-    producer = aws_iam_role.lambda_event_producer.name
+    cold = aws_iam_role.lambda_ingest_cold.name
+    hot  = aws_iam_role.lambda_ingest_hot.name
   }
 
   role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
-}
-
-# ---------- Lambda (bootstrap do banco: schema + seed + api_reader) ----------
-# Roda na VPC apenas para alcançar o RDS. Não toca S3/SQS e NÃO lê o Secrets
-# Manager: a senha do master chega como variável de ambiente, injetada pelo
-# Terraform (data source do secret gerenciado) e cifrada em repouso pelo KMS
-# da Lambda. Assim a função não precisa de rota até o Secrets Manager, que
-# exigiria um interface endpoint pago.
-resource "aws_iam_role" "lambda_bootstrap_db" {
-  name               = "${var.prefix}-lambda-bootstrap-db"
-  description        = "Lambda de bootstrap do banco - aplica schema, semeia e cria api_reader"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-
-  tags = var.tags
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_bootstrap_logs" {
-  role       = aws_iam_role.lambda_bootstrap_db.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_bootstrap_vpc" {
-  role       = aws_iam_role.lambda_bootstrap_db.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 # ---------- Glue (raw -> silver, Iceberg) ----------

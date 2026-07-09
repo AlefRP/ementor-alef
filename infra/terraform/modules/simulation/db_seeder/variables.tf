@@ -4,12 +4,7 @@ variable "prefix" {
 }
 
 variable "build_dir" {
-  description = "Diretório do pacote da Lambda (handler + psycopg + faker + .sql); ver make bootstrap-db-bundle."
-  type        = string
-}
-
-variable "role_arn" {
-  description = "Role de execução (lambda-bootstrap-db, módulo governance)."
+  description = "Diretório do pacote da Lambda (simulation/ + psycopg + faker + .sql); ver make db-seeder-bundle."
   type        = string
 }
 
@@ -19,7 +14,7 @@ variable "subnet_ids" {
 }
 
 variable "security_group_id" {
-  description = "SG da Lambda de bootstrap (egress só para o RDS; módulo network)."
+  description = "SG da Lambda de seed (egress só para o RDS; módulo network)."
   type        = string
 }
 

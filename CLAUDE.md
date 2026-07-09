@@ -4,10 +4,12 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 
 ## Mapa
 
-- `src/cold|hot|consumer/` — código de produção (só aqui)
-- `synthetic/` — simulação de dados do lab (eventos p/ SQS, tabelas p/ RDS). Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura** (não é lógica de negócio)
+**Fronteira que organiza o repo:** a arquitetura começa **no SQS** (quente) e **no RDS** (frio). Tudo que *alimenta* essas fronteiras é simulação e não se mistura com o lakehouse.
+
+- `src/cold|hot/` — **arquitetura**, código de produção (só aqui). `cold/api_orders` (RDS→serving), `cold/lambda_ingest` (API→raw), `hot/lambda_raw_ingest` (consome SQS→raw)
+- `simulation/` — **fora da arquitetura**: Lambdas que alimentam o SQS (`event_producer`) e o RDS (`db_seeder`) + os geradores Faker. Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura e sem testes** (é simulação, não lógica de negócio)
 - `tests/unit|integration|taac/` — markers `integration` e `taac`
-- `infra/terraform/` — `bootstrap/` (state remoto, apply único), `modules/`, `environments/prod/`
+- `infra/terraform/modules/` — mesma fronteira: `simulation/{event_producer,db_seeder}` separados dos módulos da arquitetura
 - `scripts/database/` — seed do Olist no RDS; `scripts/bundle/` — empacotamento das Lambdas/API
 - `.claude/` — skills, agents, commands, hooks, lessons (ver `.claude/README.md`)
 

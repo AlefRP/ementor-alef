@@ -61,31 +61,10 @@ module "governance" {
   tags                  = local.tags
 }
 
-# Senha do master do RDS (secret gerenciado). Lida aqui, no apply, e injetada
-# como env var da Lambda de bootstrap — a única forma de semear o banco sem um
-# interface endpoint pago de Secrets Manager. O state já é cifrado no S3.
-data "aws_secretsmanager_secret_version" "rds_master" {
-  secret_id = module.database.master_user_secret_arn
-}
-
-# ---- Bootstrap do banco: schema + seed sintético + usuário api_reader ----
-module "bootstrap_db" {
-  source = "../../modules/bootstrap_db"
-
-  prefix            = local.prefix
-  build_dir         = "${path.module}/../../../../build/bootstrap-db"
-  role_arn          = module.governance.lambda_bootstrap_db_role_arn
-  subnet_ids        = module.network.private_subnet_ids
-  security_group_id = module.network.lambda_bootstrap_security_group_id
-
-  pghost     = module.database.address
-  pgport     = module.database.port
-  pgdatabase = module.database.db_name
-  pguser     = module.database.master_username
-  pgpassword = jsondecode(data.aws_secretsmanager_secret_version.rds_master.secret_string)["password"]
-
-  tags = local.tags
-}
+# =====================================================================
+# ARQUITETURA — o lakehouse propriamente dito.
+# Camada fria começa no RDS; camada quente começa no SQS.
+# =====================================================================
 
 # ---- Camada fria: API privada (EC2) + Lambda de ingestão agendada ----
 module "api_cold" {
@@ -120,23 +99,65 @@ module "ingestion_cold" {
   tags                = local.tags
 }
 
-# ---- Camada quente: producer agendado -> SQS -> Lambda -> raw ----
+# ---- Camada quente: SQS -> Lambda consumidora -> raw ----
+# Começa no SQS. Quem publica na fila é simulação (adiante).
 module "ingestion_hot" {
   source = "../../modules/hot_ingestion"
 
-  prefix             = local.prefix
-  producer_build_dir = "${path.module}/../../../../build/hot-producer"
-  ingest_source      = "${path.module}/../../../../src/hot/lambda_raw_ingest/handler.py"
-  producer_role_arn  = module.governance.lambda_event_producer_role_arn
-  ingest_role_arn    = module.governance.lambda_ingest_hot_role_arn
+  prefix          = local.prefix
+  ingest_source   = "${path.module}/../../../../src/hot/lambda_raw_ingest/handler.py"
+  ingest_role_arn = module.governance.lambda_ingest_hot_role_arn
 
-  events_queue_url  = module.messaging.events_queue_url
   events_queue_arn  = module.messaging.events_queue_arn
   subnet_ids        = module.network.private_subnet_ids
   security_group_id = module.network.lambda_hot_security_group_id
   raw_bucket        = module.storage.bucket_ids["raw"]
 
+  tags = local.tags
+}
+
+# =====================================================================
+# SIMULAÇÃO — fora da arquitetura. Só alimenta as fronteiras de entrada
+# (SQS e RDS) para o lab ter dados. Num cenário real, quem faz isso são
+# os sistemas de origem. Remova este bloco inteiro sem afetar o lakehouse.
+# =====================================================================
+
+# Simula o sistema de origem que publica eventos na fila.
+module "sim_event_producer" {
+  source = "../../modules/simulation/event_producer"
+
+  prefix    = local.prefix
+  build_dir = "${path.module}/../../../../build/event-producer"
+
+  events_queue_url = module.messaging.events_queue_url
+  events_queue_arn = module.messaging.events_queue_arn
+
   schedule_expression = var.hot_schedule
   events_per_run      = var.hot_events_per_run
   tags                = local.tags
+}
+
+# Senha do master do RDS (secret gerenciado). Lida aqui, no apply, e injetada
+# como env var da Lambda de seed — a única forma de semear o banco privado sem
+# um interface endpoint pago de Secrets Manager. O state já é cifrado no S3.
+data "aws_secretsmanager_secret_version" "rds_master" {
+  secret_id = module.database.master_user_secret_arn
+}
+
+# Simula o sistema transacional: cria o schema, popula o Olist e o api_reader.
+module "sim_db_seeder" {
+  source = "../../modules/simulation/db_seeder"
+
+  prefix            = local.prefix
+  build_dir         = "${path.module}/../../../../build/db-seeder"
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.lambda_db_seeder_security_group_id
+
+  pghost     = module.database.address
+  pgport     = module.database.port
+  pgdatabase = module.database.db_name
+  pguser     = module.database.master_username
+  pgpassword = jsondecode(data.aws_secretsmanager_secret_version.rds_master.secret_string)["password"]
+
+  tags = local.tags
 }

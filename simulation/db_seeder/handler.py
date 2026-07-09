@@ -21,7 +21,7 @@ from pathlib import Path
 
 import psycopg
 
-from synthetic import olist
+from .. import olist
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
