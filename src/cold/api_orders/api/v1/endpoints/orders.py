@@ -1,9 +1,4 @@
-"""Endpoint de pedidos — extração incremental com paginação keyset.
-
-A ordenação estável por ``(order_purchase_timestamp, order_id)`` usa o índice
-``idx_orders_purchase_ts`` criado no seed; ``LIMIT`` + tupla no ``WHERE``
-evitam o custo crescente de ``OFFSET`` em extrações longas.
-"""
+"""Rota da tabela ``olist.orders``."""
 from datetime import datetime
 from typing import Annotated
 
@@ -35,18 +30,14 @@ _ORDERS_SQL = """
 """
 
 
-@router.get('', response_model=OrdersPage)
+@router.get('', summary='Lista orders')
 async def list_orders(
     conn: Annotated[psycopg.AsyncConnection, Depends(get_connection)],
     purchased_after: datetime = KEYSET_START,
     after_id: str = '',
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
 ) -> OrdersPage:
-    """Pedidos após o cursor ``(purchased_after, after_id)``, em ordem estável.
-
-    O consumidor repete a chamada com o ``next_cursor`` retornado até ele vir
-    ``null``. Pedidos sem ``order_purchase_timestamp`` ficam fora do keyset.
-    """
+    """Pedidos após o cursor ``(purchased_after, after_id)``, em ordem estável."""
     cursor = await conn.execute(
         _ORDERS_SQL,
         {
@@ -65,3 +56,6 @@ async def list_orders(
             after_id=last.order_id,
         )
     return OrdersPage(items=items, next_cursor=next_cursor)
+
+
+

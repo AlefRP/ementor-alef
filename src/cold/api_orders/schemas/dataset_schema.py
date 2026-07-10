@@ -1,7 +1,7 @@
 """Contratos de dados versionados (v1) dos demais datasets do Olist.
 
 Cada modelo espelha as colunas da tabela homônima em ``olist.*``; a ordem dos
-campos define a ordem do SELECT gerado em ``endpoints/datasets.py``.
+campos define a ordem do SELECT gerado em ``endpoints/_tables.py``.
 """
 from datetime import datetime
 from typing import Generic, TypeVar
@@ -106,3 +106,4 @@ class OrderReview(BaseModel):
     review_comment_message: str | None = None
     review_creation_date: datetime | None = None
     review_answer_timestamp: datetime | None = None
+
