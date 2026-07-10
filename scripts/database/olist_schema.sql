@@ -27,15 +27,21 @@ CREATE TABLE IF NOT EXISTS olist.sellers (
     seller_state           char(2)
 );
 
--- Sem PK: o CSV original tem linhas duplicadas por natureza (várias coordenadas
--- por prefixo de CEP).
+-- Sem PK natural: o CSV original tem linhas duplicadas por natureza (várias
+-- coordenadas por prefixo de CEP). geolocation_id (identity) dá a ordenação
+-- estável que o keyset da API exige; o ALTER cobre bancos semeados antes de a
+-- coluna existir (idempotente, backfill automático).
 CREATE TABLE IF NOT EXISTS olist.geolocation (
+    geolocation_id              bigint GENERATED ALWAYS AS IDENTITY,
     geolocation_zip_code_prefix text,
     geolocation_lat             double precision,
     geolocation_lng             double precision,
     geolocation_city            text,
     geolocation_state           char(2)
 );
+
+ALTER TABLE olist.geolocation
+    ADD COLUMN IF NOT EXISTS geolocation_id bigint GENERATED ALWAYS AS IDENTITY;
 
 CREATE TABLE IF NOT EXISTS olist.products (
     product_id                 text PRIMARY KEY,
@@ -98,5 +104,6 @@ CREATE INDEX IF NOT EXISTS idx_orders_purchase_ts ON olist.orders (order_purchas
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON olist.orders (customer_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON olist.order_items (product_id);
 CREATE INDEX IF NOT EXISTS idx_customers_state ON olist.customers (customer_state);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_geolocation_id ON olist.geolocation (geolocation_id);
 
 COMMIT;

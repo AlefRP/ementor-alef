@@ -95,3 +95,37 @@ resource "aws_lambda_permission" "eventbridge" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
 }
+
+# Uma regra por dataset extra: mesma função, mesmo schedule; o input do alvo
+# injeta o dataset e o modo de cursor (pk = snapshot resumível por chave
+# primária, contrato dos /v1/<dataset>). O marker separa o estado por dataset.
+resource "aws_cloudwatch_event_rule" "dataset" {
+  for_each = toset(var.extra_datasets)
+
+  # Nome de regra tem limite de 64 chars e datasets do Olist são longos
+  # (product_category_name_translation estoura); o substr trunca com segurança
+  # e o dataset íntegro segue no input do alvo, que é o que a Lambda lê.
+  name                = substr("${var.prefix}-ingest-cold-${replace(each.value, "_", "-")}", 0, 64)
+  description         = "Agenda da ingestao batch do dataset ${each.value}"
+  schedule_expression = var.schedule_expression
+
+  tags = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "dataset" {
+  for_each = aws_cloudwatch_event_rule.dataset
+
+  rule  = each.value.name
+  arn   = aws_lambda_function.this.arn
+  input = jsonencode({ dataset = each.key, cursor_mode = "pk" })
+}
+
+resource "aws_lambda_permission" "dataset" {
+  for_each = aws_cloudwatch_event_rule.dataset
+
+  statement_id  = "AllowEventBridge-${replace(each.key, "_", "-")}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = each.value.arn
+}

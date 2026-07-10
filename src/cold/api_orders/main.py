@@ -13,9 +13,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 
-from src.cold.api_orders.api.v1.api import api_router
-from src.cold.api_orders.core.configs import get_settings
+from src.cold.api_orders.api.v1.api import build_api_router
+from src.cold.api_orders.core.configs import Settings, get_settings
 from src.cold.api_orders.core.database import create_pool
 from src.cold.api_orders.core.deps import require_token
 
@@ -32,12 +34,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await app.state.pool.close()
 
 
+def _init_cache(settings: Settings) -> None:
+    """Cache-aside: in-memory (1 instância) ou Redis quando REDIS_URL existir."""
+    if settings.REDIS_URL:
+        # Import tardio: redis só é dependência quando o backend é usado
+        # (instale fastapi-cache2[redis] junto com a configuração).
+        from fastapi_cache.backends.redis import RedisBackend
+        from redis import asyncio as aioredis
+
+        backend = RedisBackend(aioredis.from_url(settings.REDIS_URL))
+    else:
+        backend = InMemoryBackend()
+        # O store do backend in-memory é compartilhado no nível da classe;
+        # um dict próprio isola o cache desta aplicação (e cada app de teste).
+        backend._store = {}
+    # init é no-op quando já inicializado (estado de classe): o reset garante
+    # que cada app criado (1 por processo em produção; N nos testes) comece
+    # com o backend recém-configurado, sem herdar cache de outro app.
+    FastAPICache.reset()
+    FastAPICache.init(backend, prefix='api-cache')
+
+
 def create_app() -> FastAPI:
     """Fábrica da aplicação (facilita testes e configuração por ambiente)."""
     settings = get_settings()
     app = FastAPI(title=settings.PROJECT_NAME, version='1.0.0', lifespan=lifespan)
+    _init_cache(settings)
     app.include_router(
-        api_router,
+        build_api_router(settings.CACHE_TTL_SECONDS),
         prefix=settings.API_V1_STR,
         dependencies=[Depends(require_token)],
     )

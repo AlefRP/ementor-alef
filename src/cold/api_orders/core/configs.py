@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # Defesa em profundidade: se definido, o v1 exige o header x-api-token.
     API_TOKEN: str = ''
 
+    # Cache-aside (fastapi-cache2) nos endpoints de datasets: TTL em segundos
+    # (0 desliga). Backend in-memory por padrão — suficiente para 1 instância;
+    # com REDIS_URL definido usa Redis/ElastiCache (exige fastapi-cache2[redis])
+    # para cache compartilhado quando a API escalar horizontalmente.
+    CACHE_TTL_SECONDS: int = 60
+    REDIS_URL: str = ''
+
     model_config = SettingsConfigDict(
         env_file='.env', case_sensitive=True, extra='ignore'
     )

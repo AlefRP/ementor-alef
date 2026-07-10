@@ -173,3 +173,85 @@ def test_raw_key_partitions_by_execution_date():
     moment = datetime(2026, 7, 7, 13, 45, 9, 123456, tzinfo=timezone.utc)
     key = ingest._raw_key('orders', 3, moment)
     assert key == ('orders/year=2026/month=07/day=07/134509-123456-page0003.json')
+
+
+@mock_aws
+def test_handler_pk_mode_ingests_and_stores_opaque_marker(lambda_env):
+    boto3.client('s3').create_bucket(Bucket=BUCKET)
+    pages = [
+        {
+            'items': [{'customer_id': 'c1'}, {'customer_id': 'c2'}],
+            'next_cursor': ['c2'],
+        },
+        {'items': []},
+    ]
+    event = {'dataset': 'customers', 'cursor_mode': 'pk'}
+    with mock.patch.object(ingest, '_fetch_page', side_effect=pages):
+        result = ingest.handler(event, None)
+
+    assert result == {'statusCode': 200, 'ingested': 2, 'pages': 1}
+    assert any(key.startswith('customers/year=') for key in _bucket_keys())
+    marker = json.loads(
+        boto3.client('s3')
+        .get_object(Bucket=BUCKET, Key='_markers/customers.json')['Body']
+        .read()
+    )
+    assert marker == {'after': ['c2']}
+
+
+@mock_aws
+def test_handler_pk_mode_resumes_from_saved_marker(lambda_env):
+    client = boto3.client('s3')
+    client.create_bucket(Bucket=BUCKET)
+    saved = {'after': ['c42']}
+    client.put_object(
+        Bucket=BUCKET,
+        Key='_markers/customers.json',
+        Body=json.dumps(saved).encode(),
+    )
+    event = {'dataset': 'customers', 'cursor_mode': 'pk'}
+    with mock.patch.object(ingest, '_fetch_page', return_value={'items': []}) as fetch:
+        ingest.handler(event, None)
+    assert fetch.call_args[0][1] == saved
+
+
+def test_fetch_page_pk_mode_repeats_after_params(lambda_env, monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return json.dumps({'items': []}).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None, context=None):
+        captured['url'] = request.full_url
+        return FakeResponse()
+
+    monkeypatch.setattr(ingest.urllib.request, 'urlopen', fake_urlopen)
+    config = ingest._config({'dataset': 'order_items', 'cursor_mode': 'pk'})
+    body = ingest._fetch_page(config, {'after': ['o1', '2']})
+
+    assert body == {'items': []}
+    assert '/v1/order_items?' in captured['url']
+    assert 'after=o1&after=2' in captured['url']
+    assert 'page_size=2' in captured['url']
+
+
+def test_config_event_overrides_environment(lambda_env):
+    config = ingest._config({'dataset': 'sellers', 'cursor_mode': 'pk', 'page_size': 7})
+    assert config['dataset'] == 'sellers'
+    assert config['cursor_mode'] == 'pk'
+    assert config['page_size'] == 7
+
+
+def test_advance_marker_pk_keeps_marker_without_cursor(lambda_env):
+    """Defensivo: sem next_cursor não há como avançar — mantém o cursor."""
+    config = {'cursor_mode': 'pk'}
+    marker = {'after': ['x']}
+    body = {'items': [{'customer_id': 'c9'}]}
+    assert ingest._advance_marker(config, marker, body) == marker
