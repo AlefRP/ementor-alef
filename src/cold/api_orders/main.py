@@ -52,7 +52,12 @@ def _init_cache(settings: Settings) -> None:
     # que cada app criado (1 por processo em produção; N nos testes) comece
     # com o backend recém-configurado, sem herdar cache de outro app.
     FastAPICache.reset()
-    FastAPICache.init(backend, prefix='api-cache')
+    FastAPICache.init(
+        backend,
+        prefix='api-cache',
+        expire=settings.CACHE_TTL_SECONDS,
+        enable=settings.CACHE_TTL_SECONDS > 0,
+    )
 
 
 def create_app() -> FastAPI:
@@ -112,3 +117,4 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+

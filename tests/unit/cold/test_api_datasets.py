@@ -1,11 +1,32 @@
-"""Testes dos endpoints genéricos de datasets (keyset por PK + cache-aside)."""
+"""Testes dos endpoints por tabela (keyset por PK + cache-aside)."""
 import pytest
 from fastapi.testclient import TestClient
 
-from src.cold.api_orders.api.v1.endpoints.datasets import SPECS
+from src.cold.api_orders.api.v1.endpoints import (
+    customers,
+    geolocation,
+    order_items,
+    order_payments,
+    order_reviews,
+    product_category_name_translation,
+    products,
+    sellers,
+)
 from src.cold.api_orders.core.configs import get_settings
 from src.cold.api_orders.core.deps import get_connection
 from src.cold.api_orders.main import create_app
+
+
+SPECS = (
+    customers.SPEC,
+    sellers.SPEC,
+    products.SPEC,
+    geolocation.SPEC,
+    product_category_name_translation.SPEC,
+    order_items.SPEC,
+    order_payments.SPEC,
+    order_reviews.SPEC,
+)
 
 
 class FakeCursor:
@@ -66,6 +87,17 @@ def test_every_dataset_responds_empty_page(api, spec):
     assert response.json() == {'items': [], 'next_cursor': None}
 
 
+def test_openapi_has_one_endpoint_per_rds_table(api):
+    client, _ = api()
+    paths = client.get('/openapi.json').json()['paths']
+    expected = {'/v1/orders', *(f'/v1/{spec.name}' for spec in SPECS)}
+    assert expected.issubset(paths)
+    for spec in SPECS:
+        operation = paths[f'/v1/{spec.name}']['get']
+        assert operation['operationId'] == f'list_{spec.name}'
+        assert operation['tags'] == [spec.name]
+
+
 def test_cursor_comes_even_on_partial_page(api):
     """Diferente de /v1/orders: com itens, sempre há cursor para retomar."""
     client, _ = api(rows=[_customer_row()])
@@ -103,6 +135,15 @@ def test_page_size_above_max_is_rejected(api):
     assert response.status_code == 422
 
 
+
+def test_new_app_starts_with_empty_cache(api):
+    client_a, _ = api(rows=[_customer_row('a')])
+    assert client_a.get('/v1/customers').json()['items'][0]['customer_id'] == 'a'
+    client_b, _ = api(rows=[_customer_row('b')])
+    assert client_b.get('/v1/customers').json()['items'][0]['customer_id'] == 'b'
+
+
+
 def test_cache_hit_skips_database(api):
     client, conn = api(rows=[_customer_row()])
     first = client.get('/v1/customers').json()
@@ -118,13 +159,6 @@ def test_cache_key_distinguishes_query_string(api):
     assert len(conn.queries) == 2
 
 
-def test_new_app_starts_with_empty_cache(api):
-    client_a, _ = api(rows=[_customer_row('a')])
-    assert client_a.get('/v1/customers').json()['items'][0]['customer_id'] == 'a'
-    client_b, _ = api(rows=[_customer_row('b')])
-    assert client_b.get('/v1/customers').json()['items'][0]['customer_id'] == 'b'
-
-
 def test_cache_disabled_with_zero_ttl(api):
     client, conn = api(rows=[_customer_row()], cache_ttl=0)
     client.get('/v1/customers')
@@ -132,10 +166,17 @@ def test_cache_disabled_with_zero_ttl(api):
     assert len(conn.queries) == 2
 
 
-def test_datasets_require_token_when_configured(api, monkeypatch):
+def test_table_routes_require_token_when_configured(api, monkeypatch):
     monkeypatch.setenv('API_TOKEN', 's3gr3d0')
     get_settings.cache_clear()
     client, _ = api()
     assert client.get('/v1/customers').status_code == 401
     ok = client.get('/v1/customers', headers={'x-api-token': 's3gr3d0'})
     assert ok.status_code == 200
+
+
+
+
+
+
+
