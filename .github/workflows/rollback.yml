@@ -53,7 +53,8 @@ jobs:
 
     # Passos chamam alvos do Makefile (fonte única dos comandos). Atenção:
     # o checkout do target_ref traz o Makefile daquela época — rollbacks só
-    # funcionam para refs que já contêm os alvos tf-plan-out/tf-apply-plan.
+    # funcionam para refs que já contêm os alvos tf-plan-out/tf-apply-plan/
+    # tf-ensure-bundle.
     steps:
       - name: Log da operação (auditoria)
         run: |
@@ -83,6 +84,23 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # Pré-condição do apply: o gate da EC2 (data aws_s3_object) exige o
+      # bundle da API no bucket de artefatos — sem ele o apply morre após
+      # ~12 min de retry do provider, deixando infra parcial. OVERWRITE=1
+      # publica o bundle DESTE ref (rollback também do código da API: etag
+      # novo => user_data novo => EC2 substituída); AUTO_APPROVE=1 cobre o
+      # bootstrap do zero (fase 1 cria o storage sem confirmação interativa).
+      - name: Garantir bundle da API do ref alvo
+        if: inputs.mode == 'apply'
+        run: |
+          python -m pip install --upgrade pip boto3
+          make tf-ensure-bundle AUTO_APPROVE=1 OVERWRITE=1
 
       - name: Terraform Plan (rollback)
         run: make tf-plan-out
