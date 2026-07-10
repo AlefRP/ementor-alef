@@ -3,6 +3,12 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versionamento [SemVer](https://semver.org/) derivado de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 Gerado automaticamente pelo workflow `release.yml` a cada push na master/main com commit `feat`/`fix`/`BREAKING CHANGE` — não editar manualmente.
 
+## [0.3.0] - 2026-07-10
+### Adicionado
+- feat(api): todos os datasets do Olist na API, ingestao por PK e cache-aside (1aed12c)
+### Corrigido
+- fix(terraform): seed automatico do RDS no apply (bootstrap idempotente) (41832d9)
+
 ## [0.2.0] - 2026-07-10
 ### Adicionado
 - feat(make): tf-apply em um comando com precheck do bundle da API (0b4ff92)
