@@ -14,32 +14,7 @@ Este repositório contém a estrutura inicial para um projeto de lakehouse na AW
 
 ## 🗺️ Diagrama da Arquitetura
 
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          CAMADA FRIA (batch)                            │
-│                                                                         │
-│  EC2 (FastAPI)  ──►  Lambda (EventBridge)  ──►  S3 raw                 │
-│                                                    │                   │
-│                              Glue Job (Iceberg) ◄──┘                   │
-│                                    │                                   │
-│                              S3 silver  ──►  Athena Views (gold)       │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         CAMADA QUENTE (eventos)                         │
-│                                                                         │
-│  EC2 (Event API)  ──►  SQS  ──►  Lambda  ──►  S3 raw                  │
-│                                                    │                   │
-│                     Glue Microbatch (Iceberg) ◄────┘                   │
-│                              │                                         │
-│                        S3 silver  ──►  Athena Views (gold)             │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────┐   ┌──────────────────────────────┐
-│        CAMADA CONSUMER           │   │       GOVERNANÇA             │
-│  Athena queries sobre gold       │   │  Lake Formation + CloudWatch │
-└──────────────────────────────────┘   └──────────────────────────────┘
-```
+![Diagrama da arquitetura AWS Lakehouse](docs/img/arquitetura.png)
 
 ---
 
