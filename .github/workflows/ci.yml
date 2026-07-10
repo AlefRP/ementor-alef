@@ -281,18 +281,16 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
 
-      # Recompila e publica o bundle a partir do commit de merge — o gate da
-      # EC2 (data aws_s3_object) e o etag no user_data leem daqui, e o apply
-      # abaixo entrega a versão da master (sobrescreve bundle de PR anterior).
-      - name: Build e upload do bundle da API
+      # Recompila e publica o bundle do commit de merge via tf-ensure-bundle —
+      # o gate da EC2 (data aws_s3_object) e o etag no user_data leem daqui.
+      # OVERWRITE=1 entrega a versão da master (sobrescreve bundle de PR
+      # anterior); AUTO_APPROVE=1 cobre o bootstrap do zero (fase 1 cria o
+      # storage ANTES de o gate ser lido — sem isso o apply criava o bucket
+      # e morria ~12 min depois no retry do gate, deixando infra parcial).
+      - name: Garantir e publicar bundle da API (commit de merge)
         run: |
-          make api-bundle
-          BUCKET="${{ vars.ARTIFACTS_BUCKET || 'alef-rp-aws-lakehouse-prod-artifacts' }}"
-          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            aws s3 cp build/api-bundle.tar.gz "s3://$BUCKET/api/api-bundle.tar.gz"
-          else
-            echo "::warning::bucket $BUCKET ainda nao existe - bootstrap do zero e manual: make tf-apply"
-          fi
+          python -m pip install --upgrade pip boto3
+          make tf-ensure-bundle AUTO_APPROVE=1 OVERWRITE=1
 
       - name: Terraform Plan (auditoria do apply)
         run: make tf-plan-out
