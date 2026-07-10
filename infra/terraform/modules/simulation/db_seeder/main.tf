@@ -9,8 +9,10 @@
 # var, injetada pelo Terraform a partir do secret gerenciado. Assim a função não
 # precisa de rota até o Secrets Manager, que exigiria um interface endpoint pago.
 #
-# Não é agendada: invoque sob demanda (make seed-db). É idempotente — schema com
-# IF NOT EXISTS, seed que sai cedo se já há pedidos, create_api_reader guardado.
+# Roda automaticamente no apply que cria a infra (aws_lambda_invocation) e de
+# novo se o RDS for recriado; make seed-db continua valendo para re-execução
+# manual. É idempotente — schema com IF NOT EXISTS, seed que sai cedo se já há
+# pedidos, create_api_reader guardado.
 #
 # A role vive aqui, e não em governance: governance cuida das roles da
 # arquitetura (camadas fria/quente, Glue, EC2), não da simulação.
@@ -102,4 +104,21 @@ resource "aws_lambda_function" "seeder" {
   depends_on = [aws_cloudwatch_log_group.seeder]
 
   tags = var.tags
+}
+
+# Bootstrap no apply: sem esta invocação o banco nasce vazio (sem schema e sem
+# api_reader) e a camada fria inteira fica muda — API responde 500 e a Lambda
+# de ingestão não grava nada. CREATE_ONLY roda uma vez na criação; o trigger em
+# pghost re-executa quando o RDS é recriado (endpoint novo = banco vazio).
+resource "aws_lambda_invocation" "bootstrap" {
+  function_name   = aws_lambda_function.seeder.function_name
+  input           = jsonencode({ source = "terraform-apply" })
+  lifecycle_scope = "CREATE_ONLY"
+
+  triggers = {
+    pghost = var.pghost
+    # Schema/seed novos re-rodam o bootstrap (idempotente): é assim que uma
+    # migração de schema (ex.: coluna nova) chega a um banco já semeado.
+    bundle_hash = data.archive_file.seeder.output_base64sha256
+  }
 }
