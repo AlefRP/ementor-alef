@@ -22,7 +22,7 @@ make test-taac      # testes de arquitetura (TAAC)
 make tf-validate tf-lint tf-security   # gates Terraform sem AWS
 make tf-bootstrap-apply                # 1x: cria o bucket de state remoto
 make tf-plan TF_ENV=prod               # autentica na AWS — só quando necessário
-make tf-apply TF_ENV=prod              # apply manual (esteira só faz plan)
+make tf-apply TF_ENV=prod              # apply manual (bootstrap/exceção; a esteira aplica no merge à master)
 make tf-destroy FORCE=1                # teardown total (FORCE arma force_destroy e esvazia buckets)
 ```
 
@@ -31,7 +31,7 @@ make tf-destroy FORCE=1                # teardown total (FORCE arma force_destro
 - Python ≥ 3.11; **blue** (88 col, aspas **simples**; duplas só em docstrings) + **isort** (profile black). Testes: `test_<unidade>_<cenario>`.
 - Paths S3 sempre particionados `year/month/day`. Logging estruturado JSON, nunca `print`.
 - Sem credenciais/segredos no código — IAM roles + env vars. IAM sempre least-privilege (nunca `Action:"*"`).
-- Terraform: módulos em `modules/`, composição em `environments/`; **nunca rode `terraform apply`** (apply é manual; a esteira só faz plan).
+- Terraform: módulos em `modules/`, composição em `environments/`; **nunca rode `terraform apply`** (a esteira aplica no merge à master — plan no PR, apply automático; local só bootstrap/exceção).
 - Não comente/documente código que você não alterou. Docs e commits em PT-BR (`tipo(escopo): descricao`).
 
 ## Protocolo de aprendizado (obrigatório)
