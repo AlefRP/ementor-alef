@@ -18,8 +18,12 @@ Este script torna ``make tf-apply`` um comando só, de qualquer estado:
   (com confirmação), depois builda/publica o bundle; o apply completo do
   Makefile vira a fase 2.
 
-NUNCA sobrescreve um bundle já publicado (a esteira também publica; redeploy
-explícito continua sendo ``make api-bundle-upload``).
+Por padrão NUNCA sobrescreve um bundle já publicado (a esteira também publica;
+redeploy explícito continua sendo ``make api-bundle-upload``). Exceções via
+flags, para o rollback.yml da esteira: ``--overwrite`` rebuilda e republica o
+bundle do checkout corrente (etag novo => user_data novo => a EC2 é substituída
+com o código do ref alvo) e ``--auto-approve`` libera a fase 1 do bootstrap em
+runner não interativo.
 
 Script Python (não receita shell) pela mesma razão dos bundles: roda igual no
 Windows (make -> cmd.exe) e no Ubuntu do CI.
@@ -69,32 +73,33 @@ def _object_exists(s3, bucket: str, key: str) -> bool:
         raise
 
 
-def _ensure_tarball() -> None:
-    if TARBALL.exists():
+def _ensure_tarball(rebuild: bool) -> None:
+    if TARBALL.exists() and not rebuild:
         _say(
             f'reutilizando {TARBALL.relative_to(ROOT)} ja buildado '
             '(rode `make api-bundle` antes se quiser rebuildar)'
         )
         return
-    _say('bundle local ausente - gerando via scripts/bundle/api_bundle.py')
+    reason = 'rebuild do checkout atual' if rebuild else 'bundle local ausente'
+    _say(f'{reason} - gerando via scripts/bundle/api_bundle.py')
     subprocess.run([sys.executable, str(BUNDLE_SCRIPT)], check=True)
 
 
-def _publish_bundle(s3, bucket: str, key: str) -> None:
-    _ensure_tarball()
+def _publish_bundle(s3, bucket: str, key: str, rebuild: bool = False) -> None:
+    _ensure_tarball(rebuild)
     _say(f'publicando {TARBALL.name} em s3://{bucket}/{key}')
     s3.upload_file(str(TARBALL), bucket, key)
     etag = s3.head_object(Bucket=bucket, Key=key)['ETag'].strip('"')
     _say(f'bundle publicado (etag {etag}) - apply liberado')
 
 
-def _bootstrap_storage(tf_dir: str, target: str) -> None:
+def _bootstrap_storage(tf_dir: str, target: str, auto_approve: bool) -> None:
     _say(f'bucket de artefatos nao existe - fase 1/2: apply de -target={target}')
     _say('(o gate do bundle e lido no mesmo apply que criaria o bucket)')
-    subprocess.run(
-        ['terraform', f'-chdir={tf_dir}', 'apply', f'-target={target}'],
-        check=True,
-    )
+    command = ['terraform', f'-chdir={tf_dir}', 'apply', f'-target={target}']
+    if auto_approve:
+        command.append('-auto-approve')
+    subprocess.run(command, check=True)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -107,6 +112,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default='module.storage',
         help='alvo do apply da fase 1 no bootstrap do zero',
     )
+    parser.add_argument(
+        '--auto-approve',
+        action='store_true',
+        help='fase 1 do bootstrap sem confirmacao interativa (uso da esteira)',
+    )
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='rebuilda e republica o bundle deste checkout mesmo se ja publicado',
+    )
     return parser.parse_args(argv)
 
 
@@ -115,13 +130,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         s3 = boto3.client('s3')
         if not _bucket_exists(s3, args.bucket):
-            _bootstrap_storage(args.tf_dir, args.storage_target)
+            _bootstrap_storage(args.tf_dir, args.storage_target, args.auto_approve)
             if not _bucket_exists(s3, args.bucket):
                 _say(f'ERRO: fase 1 terminou mas o bucket {args.bucket} nao apareceu')
                 return 1
-            _publish_bundle(s3, args.bucket, args.key)
+            _publish_bundle(s3, args.bucket, args.key, rebuild=args.overwrite)
         elif not _object_exists(s3, args.bucket, args.key):
-            _publish_bundle(s3, args.bucket, args.key)
+            _publish_bundle(s3, args.bucket, args.key, rebuild=args.overwrite)
+        elif args.overwrite:
+            _say('--overwrite: republicando o bundle deste checkout (rollback)')
+            _publish_bundle(s3, args.bucket, args.key, rebuild=True)
         else:
             _say(f'bundle OK em s3://{args.bucket}/{args.key} - apply liberado')
         return 0

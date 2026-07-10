@@ -19,7 +19,7 @@ ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
-        tf-init tf-plan tf-plan-out tf-apply tf-apply-plan tf-output \
+        tf-init tf-plan tf-plan-out tf-ensure-bundle tf-apply tf-apply-plan tf-output \
         tf-empty-buckets tf-force-arm tf-destroy-precheck tf-destroy \
         quality ci
 
@@ -172,15 +172,20 @@ tf-plan-out: event-producer-bundle db-seeder-bundle
 tf-apply-plan:
 	terraform -chdir=$(TF_DIR) apply -no-color $(TF_PLAN_FILE)
 
-# Apply manual do ambiente (a esteira só faz plan; o terraform pede confirmação).
-# O precheck garante o bundle da API publicado antes do apply (o gate da EC2
-# lê o objeto no S3): bundle ausente -> builda/publica; bucket ausente
-# (bootstrap do zero) -> cria o storage primeiro (fase 1, com confirmação) e
-# publica o bundle — o apply completo abaixo vira a fase 2. Sem o precheck,
-# esses dois estados matavam o apply no meio, após ~12 min de retry do gate.
-tf-apply: event-producer-bundle db-seeder-bundle
+# Precheck do bundle da API (o gate do apply da EC2 lê o objeto no S3): bundle
+# ausente -> builda/publica; bucket ausente (bootstrap do zero) -> cria o
+# storage primeiro (fase 1) e publica — o apply completo vira a fase 2. Sem
+# isso, esses dois estados matavam o apply no meio, após ~12 min de retry do
+# gate. Chamado pelo tf-apply manual E pelo rollback.yml da esteira, que passa
+# AUTO_APPROVE=1 (fase 1 sem confirmação) e OVERWRITE=1 (republica o bundle do
+# ref alvo: etag novo => user_data novo => EC2 substituída no apply).
+tf-ensure-bundle:
 	terraform -chdir=$(TF_DIR) init
-	python scripts/deploy/ensure_api_bundle.py --tf-dir $(TF_DIR) --bucket $(ARTIFACTS_BUCKET)
+	python scripts/deploy/ensure_api_bundle.py --tf-dir $(TF_DIR) --bucket $(ARTIFACTS_BUCKET) $(if $(AUTO_APPROVE),--auto-approve) $(if $(OVERWRITE),--overwrite)
+
+# Apply manual do ambiente (o terraform pede confirmação; na esteira, apply
+# existe só no rollback.yml, sempre a partir de um plan salvo).
+tf-apply: event-producer-bundle db-seeder-bundle tf-ensure-bundle
 	terraform -chdir=$(TF_DIR) apply
 
 tf-output:

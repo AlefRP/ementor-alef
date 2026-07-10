@@ -1,5 +1,7 @@
 terraform {
-  required_version = ">= 1.10"
+  # Piso = versão do terraform do desenvolvimento local (state gravado por um
+  # CLI mais novo não pode ser lido por CLIs mais antigos).
+  required_version = ">= 1.15.6"
 
   required_providers {
     aws = {

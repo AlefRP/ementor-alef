@@ -128,3 +128,8 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: `sonar.yml` chama `make test-cov` — o alvo existia, mas o `pytest -m taac tests/taac` só seleciona testes marcados; um teste sem marker seria silenciosamente ignorado (0 testes = verde falso).
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.
 - Regra: todo teste em `tests/taac/` e `tests/integration/` DEVE ter o marker do diretório; verificar com `pytest -m <marker> --collect-only`.
+
+## 2026-07-10 · ci · Precheck de apply só no alvo manual; a esteira aplicava sem ele
+- Sintoma: rollback.yml (mode=apply) num ambiente do zero morreu após ~11 min: `data.aws_s3_object.bundle` "couldn't find resource" — infra parcial.
+- Causa raiz: ensure_api_bundle.py ligado só no `make tf-apply`; o caminho da esteira (tf-plan-out → tf-apply-plan) não publica o bundle, e no bootstrap o gate é adiado para o apply (bucket unknown no plan).
+- Regra: invariante de pré-apply mora num alvo make único (tf-ensure-bundle) chamado por TODOS os caminhos que aplicam — manual e esteira (AUTO_APPROVE=1 OVERWRITE=1).
