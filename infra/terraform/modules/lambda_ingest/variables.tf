@@ -50,6 +50,12 @@ variable "dataset" {
   default     = "orders"
 }
 
+variable "extra_datasets" {
+  description = "Datasets adicionais (rota /v1/<nome> e pasta na raw) ingeridos pela MESMA função com cursor por PK; cada um ganha regra própria no EventBridge que injeta o dataset no input do alvo."
+  type        = list(string)
+  default     = []
+}
+
 variable "page_size" {
   description = "Tamanho de página pedido à API."
   type        = number

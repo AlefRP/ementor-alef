@@ -24,6 +24,8 @@ api = [
   "psycopg[binary,pool]==3.3.4", # driver async + pool de conexões
   "pydantic-settings==2.14.2",
   "boto3>=1.34,<2", # senha do RDS via Secrets Manager (SECRET_ARN)
+  "fastapi-cache2==0.2.2", # cache-aside nos datasets (in-memory; Redis via REDIS_URL)
+  "jinja2>=3.1.6", # dependência implícita do fastapi-cache2 (coder importa starlette.templating)
 ]
 # Subconjunto usado pela matrix de testes (unit + TAAC + testes da API/Lambda).
 test = [

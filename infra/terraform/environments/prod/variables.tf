@@ -28,6 +28,21 @@ variable "ingest_schedule" {
   default     = "rate(1 hour)"
 }
 
+variable "cold_extra_datasets" {
+  description = "Datasets do Olist além de orders servidos pela API (/v1/<nome>) e ingeridos com cursor por PK (snapshot resumível)."
+  type        = list(string)
+  default = [
+    "customers",
+    "sellers",
+    "products",
+    "geolocation",
+    "product_category_name_translation",
+    "order_items",
+    "order_payments",
+    "order_reviews",
+  ]
+}
+
 variable "hot_schedule" {
   description = "Cadência do producer de eventos da camada quente."
   type        = string

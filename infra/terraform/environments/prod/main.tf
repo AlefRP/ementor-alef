@@ -97,6 +97,7 @@ module "ingestion_cold" {
   api_base_url        = module.api_cold.base_url # HTTPS pelo IP privado fixo
   api_ca_pem          = module.api_cold.ca_pem
   schedule_expression = var.ingest_schedule
+  extra_datasets      = var.cold_extra_datasets
   tags                = local.tags
 }
 

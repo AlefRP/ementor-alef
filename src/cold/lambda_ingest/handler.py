@@ -1,10 +1,13 @@
-"""Lambda de ingestão fria: consome a API de pedidos e grava na raw (S3).
+"""Lambda de ingestão fria: consome a API de data product e grava na raw (S3).
 
 Agendada via EventBridge; incremental e retomável via marker (o cursor keyset
-da API) em ``s3://<raw>/_markers/<dataset>.json``. O tráfego é privado: a
-Lambda roda na VPC, chama a API pelo DNS privado da EC2 (opcionalmente HTTPS
-com CA própria via ``API_CA_FILE``) e escreve no S3 pelo gateway endpoint —
-sem NAT. Módulo autocontido (stdlib + boto3) para o zip de deploy.
+da API) em ``s3://<raw>/_markers/<dataset>.json``. Uma única função atende
+todos os datasets: cada regra do EventBridge passa no input o ``dataset`` e o
+``cursor_mode`` — ``orders`` (cursor por timestamp de compra, contrato do
+``/v1/orders``) ou ``pk`` (cursor opaco ``after``/``next_cursor`` dos demais
+``/v1/<dataset>``). O tráfego é privado: a Lambda roda na VPC, chama a API
+pelo IP privado da EC2 (HTTPS com CA própria via ``API_CA_FILE``) e escreve no
+S3 pelo gateway endpoint — sem NAT. Módulo autocontido (stdlib + boto3).
 """
 import json
 import logging
@@ -32,44 +35,66 @@ def _s3_client():
     return _S3
 
 
-def _config() -> dict:
-    """Lê a configuração do ambiente a cada invocação (testável)."""
-    return {
+def _config(event: dict | None = None) -> dict:
+    """Configuração do ambiente, sobreposta pelo input do EventBridge.
+
+    O input do alvo (``{"dataset": ..., "cursor_mode": ...}``) permite que uma
+    única função atenda N datasets — cada regra injeta o seu.
+    """
+    config = {
         'api_base_url': os.environ['API_BASE_URL'].rstrip('/'),
         'raw_bucket': os.environ['RAW_BUCKET'],
         'dataset': os.environ.get('DATASET', 'orders'),
-        'page_size': int(os.environ.get('PAGE_SIZE', '500')),
-        'max_pages': int(os.environ.get('MAX_PAGES', '50')),
+        'cursor_mode': os.environ.get('CURSOR_MODE', 'orders'),
+        'page_size': os.environ.get('PAGE_SIZE', '500'),
+        'max_pages': os.environ.get('MAX_PAGES', '50'),
         'timeout': int(os.environ.get('TIMEOUT_SECONDS', '30')),
         'api_token': os.environ.get('API_TOKEN', ''),
         'ca_file': os.environ.get('API_CA_FILE', ''),
     }
+    for key in ('dataset', 'cursor_mode', 'page_size', 'max_pages'):
+        if event and key in event:
+            config[key] = event[key]
+    config['page_size'] = int(config['page_size'])
+    config['max_pages'] = int(config['max_pages'])
+    return config
 
 
 def _marker_key(dataset: str) -> str:
     return f'_markers/{dataset}.json'
 
 
-def _read_marker(bucket: str, dataset: str) -> dict:
+def _initial_marker(cursor_mode: str) -> dict:
+    if cursor_mode == 'pk':
+        return {'after': []}
+    return {'purchased_after': KEYSET_START, 'after_id': ''}
+
+
+def _read_marker(bucket: str, dataset: str, cursor_mode: str) -> dict:
     """Cursor da última execução; começa do início se ainda não existir."""
     client = _s3_client()
     try:
         response = client.get_object(Bucket=bucket, Key=_marker_key(dataset))
     except client.exceptions.NoSuchKey:
-        return {'purchased_after': KEYSET_START, 'after_id': ''}
+        return _initial_marker(cursor_mode)
     return json.loads(response['Body'].read())
 
 
 def _fetch_page(config: dict, marker: dict) -> dict:
     """Busca uma página da API respeitando o cursor keyset."""
-    query = urllib.parse.urlencode(
-        {
-            'purchased_after': marker['purchased_after'],
-            'after_id': marker['after_id'],
-            'page_size': config['page_size'],
-        }
-    )
-    url = f"{config['api_base_url']}/v1/orders?{query}"
+    if config['cursor_mode'] == 'pk':
+        pairs = [('after', value) for value in marker['after']]
+        pairs.append(('page_size', config['page_size']))
+        query = urllib.parse.urlencode(pairs)
+    else:
+        query = urllib.parse.urlencode(
+            {
+                'purchased_after': marker['purchased_after'],
+                'after_id': marker['after_id'],
+                'page_size': config['page_size'],
+            }
+        )
+    url = f"{config['api_base_url']}/v1/{config['dataset']}?{query}"
     # S5332 suprimido: http em claro é decisão do lab — a API é interna à
     # VPC (subnet privada + security group), sem TLS no serviço interno.
     if not url.startswith(('http://', 'https://')):  # NOSONAR
@@ -97,11 +122,25 @@ def _raw_key(dataset: str, page: int, moment: datetime) -> str:
     )
 
 
+def _advance_marker(config: dict, marker: dict, body: dict) -> dict:
+    """Próximo cursor: ecoa o next_cursor (pk) ou deriva do último item."""
+    if config['cursor_mode'] == 'pk':
+        next_cursor = body.get('next_cursor')
+        return {'after': next_cursor} if next_cursor else marker
+    last = body['items'][-1]
+    return {
+        'purchased_after': last['order_purchase_timestamp'],
+        'after_id': last['order_id'],
+    }
+
+
 def handler(event, context):
-    """Ingere pedidos da API para a raw e avança o marker (retomável)."""
-    config = _config()
+    """Ingere um dataset da API para a raw e avança o marker (retomável)."""
+    config = _config(event)
     try:
-        marker = _read_marker(config['raw_bucket'], config['dataset'])
+        marker = _read_marker(
+            config['raw_bucket'], config['dataset'], config['cursor_mode']
+        )
         started = datetime.now(timezone.utc)
         ingested = 0
         pages = 0
@@ -117,11 +156,7 @@ def handler(event, context):
             )
             ingested += len(items)
             pages += 1
-            last = items[-1]
-            marker = {
-                'purchased_after': last['order_purchase_timestamp'],
-                'after_id': last['order_id'],
-            }
+            marker = _advance_marker(config, marker, body)
             if len(items) < config['page_size']:
                 break
         if ingested:

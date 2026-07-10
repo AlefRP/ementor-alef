@@ -129,6 +129,16 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: seleção por marker (`-m taac`) exige `@pytest.mark.taac`/`pytestmark` em TODO teste do diretório.
 - Regra: todo teste em `tests/taac/` e `tests/integration/` DEVE ter o marker do diretório; verificar com `pytest -m <marker> --collect-only`.
 
+## 2026-07-10 · tool · Git Bash converte args com "/" do AWS CLI em paths Windows
+- Sintoma: `--log-group-name /aws/lambda/...` falhou (InvalidParameterException) e `--delimiter '/'` virou `C:/Program Files/Git` — o list-objects do S3 voltou vazio SILENCIOSAMENTE e quase virou diagnóstico errado.
+- Causa raiz: o MSYS (Git Bash) faz path conversion em qualquer argumento que começa com `/`; o caso do delimitador corrompe sem erro.
+- Regra: AWS CLI no Bash do Windows sempre com `MSYS_NO_PATHCONV=1` (ou rodar no PowerShell); resultado vazio com arg contendo `/` é suspeito até provar o contrário.
+
+## 2026-07-10 · aws · Nome concatenado prefixo+dataset estoura limite de 64 chars
+- Sintoma: `make tf-plan` falhou no FIM (`"name" cannot be longer than 64 characters`) na regra EventBridge de `product_category_name_translation`; validate/tflint não pegam (a validação é do provider, só roda no plan com o valor real).
+- Causa raiz: nome = prefixo (26) + sufixo fixo (13) + dataset (33) = 73 chars; assumi que nome composto "cabe" sem somar.
+- Regra: nome derivado de lista/variável ganha `substr(..., 0, <limite>)` com comentário; o valor íntegro vai em campo sem limite apertado (input/tag). Conferir limites: EventBridge rule 64, IAM role 64, statement_id 100.
+
 ## 2026-07-10 · ci · Precheck de apply só no alvo manual; a esteira aplicava sem ele
 - Sintoma: rollback.yml (mode=apply) num ambiente do zero morreu após ~11 min: `data.aws_s3_object.bundle` "couldn't find resource" — infra parcial.
 - Causa raiz: ensure_api_bundle.py ligado só no `make tf-apply`; o caminho da esteira (tf-plan-out → tf-apply-plan) não publica o bundle, e no bootstrap o gate é adiado para o apply (bucket unknown no plan).

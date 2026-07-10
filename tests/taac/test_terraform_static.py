@@ -300,3 +300,45 @@ def test_no_ingress_rule_open_to_internet(terraform_blocks):
         assert (
             '0.0.0.0/0' not in rule.body
         ), f'{rule.address}: ingress aberto à internet'
+
+
+def test_cold_datasets_have_their_own_schedules(resources):
+    """Datasets extras da fria: um alvo por dataset com cursor por PK.
+
+    A mesma função atende N datasets; cada regra do EventBridge injeta
+    ``{dataset, cursor_mode: pk}`` no input do alvo e o marker separa o
+    estado por dataset na raw.
+    """
+    targets = _by_type(resources, 'aws_cloudwatch_event_target')
+    dataset_targets = [t for t in targets if 'cursor_mode' in t.body]
+    assert dataset_targets, (
+        'esperava aws_cloudwatch_event_target com input {dataset, cursor_mode}'
+        ' no módulo lambda_ingest'
+    )
+    for target in dataset_targets:
+        assert (
+            'for_each' in target.body
+        ), f'{target.address}: esperava um alvo por dataset (for_each)'
+        assert re.search(
+            r'cursor_mode\s*=\s*"pk"', target.body
+        ), f'{target.address}: cursor_mode do input deve ser "pk"'
+
+
+def test_db_seeder_bootstraps_on_apply(resources):
+    """O seed do RDS roda no apply que sobe a infra e re-roda se o banco mudar.
+
+    Sem a invocação, o banco nasce vazio (sem schema e sem api_reader) e a
+    camada fria inteira fica muda: a API responde 500 e a ingestão não grava
+    nada na raw. O trigger em pghost re-executa o bootstrap quando o RDS é
+    recriado (endpoint novo = banco vazio de novo).
+    """
+    invocations = _by_type(resources, 'aws_lambda_invocation')
+    seeders = [b for b in invocations if 'db_seeder' in str(b.file)]
+    assert seeders, 'esperava aws_lambda_invocation no módulo simulation/db_seeder'
+    for invocation in seeders:
+        assert re.search(
+            r'triggers\s*=', invocation.body
+        ), f'{invocation.address}: sem triggers (não re-roda se o RDS for recriado)'
+        assert (
+            'pghost' in invocation.body
+        ), f'{invocation.address}: trigger deve incluir pghost (RDS novo = vazio)'
