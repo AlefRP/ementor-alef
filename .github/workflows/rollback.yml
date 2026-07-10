@@ -2,9 +2,10 @@ name: Rollback
 
 # Rollback manual da infra: faz checkout de um ref antigo (idealmente uma tag
 # de versão vX.Y.Z criada pelo CD — release.yml — a cada merge na master) e
-# aplica aquela configuração sobre o state remoto. Único ponto da esteira
-# autorizado a rodar apply — sempre disparado por humano, com plan salvo
-# como auditoria.
+# aplica aquela configuração sobre o state remoto. O apply regular acontece
+# no CI a cada merge na master (job terraform-apply do ci.yml); este workflow
+# é o caminho de volta — sempre disparado por humano, com plan salvo como
+# auditoria.
 on:
   workflow_dispatch:
     inputs:

@@ -70,7 +70,9 @@ def _fetch_page(config: dict, marker: dict) -> dict:
         }
     )
     url = f"{config['api_base_url']}/v1/orders?{query}"
-    if not url.startswith(('http://', 'https://')):
+    # S5332 suprimido: http em claro é decisão do lab — a API é interna à
+    # VPC (subnet privada + security group), sem TLS no serviço interno.
+    if not url.startswith(('http://', 'https://')):  # NOSONAR
         raise ValueError(f'URL com esquema não suportado: {url}')
     request = urllib.request.Request(url)
     if config['api_token']:
