@@ -225,6 +225,54 @@ resource "aws_vpc_endpoint" "ssm" {
   tags = merge(var.tags, { Name = "${var.prefix}-${each.value}-endpoint" })
 }
 
+# ---- SQS a partir da EC2 privada (Event API -> fila) ----
+# O SQS não tem gateway endpoint (só o S3 e o DynamoDB têm). Sem NAT, a única
+# forma de a Event API publicar na fila de dentro da subnet privada é um
+# interface endpoint — pago (~US$ 0,01/h), como os do SSM acima e na MESMA
+# subnet, pelo mesmo motivo (não multiplicar o custo por AZ).
+# A alternativa gratuita seria a EC2 numa subnet pública com IP público, o que
+# furaria a postura privada que o resto da arquitetura sustenta.
+resource "aws_vpc_endpoint" "sqs" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.sqs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private[0].id]
+  security_group_ids  = [aws_security_group.vpce.id]
+  private_dns_enabled = true
+
+  tags = merge(var.tags, { Name = "${var.prefix}-sqs-endpoint" })
+}
+
+# SG do produtor de eventos (SIMULAÇÃO): entrou na VPC porque agora chama a
+# Event API (antes falava direto com o SQS pelo endpoint público). Só sai para
+# a API; nenhuma entrada.
+resource "aws_security_group" "lambda_event_producer" {
+  #checkov:skip=CKV2_AWS_5: falso positivo - o SG e anexado em outro modulo (simulation/event_producer); o grafo do checkov nao cruza modulos
+  name        = "${var.prefix}-lambda-event-producer"
+  description = "Simulacao: Lambda produtora de eventos (VPC) - chama a Event API"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.prefix}-lambda-event-producer-sg" })
+}
+
+resource "aws_vpc_security_group_egress_rule" "event_producer_to_api" {
+  security_group_id            = aws_security_group.lambda_event_producer.id
+  description                  = "Chamada privada a Event API (camada quente)"
+  referenced_security_group_id = aws_security_group.api.id
+  from_port                    = var.api_port
+  to_port                      = var.api_port
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_from_event_producer" {
+  security_group_id            = aws_security_group.api.id
+  description                  = "Event API a partir do produtor de eventos (simulacao)"
+  referenced_security_group_id = aws_security_group.lambda_event_producer.id
+  from_port                    = var.api_port
+  to_port                      = var.api_port
+  ip_protocol                  = "tcp"
+}
+
 # SG da Lambda de SEED do banco (simulação): roda na VPC só para alcançar o RDS
 # (o RDS é privado e a EC2 não chega ao Secrets Manager). Sem entrada.
 resource "aws_security_group" "lambda_db_seeder" {

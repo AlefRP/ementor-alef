@@ -17,9 +17,18 @@ variable "vpc_cidr" {
 }
 
 variable "api_port" {
-  description = "Porta privada da API de data product (uvicorn na EC2)."
+  description = "Porta privada das APIs (uvicorn na EC2) — fria e quente."
   type        = number
   default     = 8000
+}
+
+# Uma variável só: o PGUSER da API fria e o dbuser do rds-db:connect na policy
+# IAM (governance) PRECISAM ser o mesmo — separados, divergiriam em silêncio e a
+# API tomaria 'PAM authentication failed' só em runtime.
+variable "api_db_user" {
+  description = "Usuário do banco usado pela API fria (com grant rds_iam, sem senha)."
+  type        = string
+  default     = "api_reader"
 }
 
 variable "ingest_schedule" {
@@ -71,6 +80,18 @@ variable "silver_database_name" {
   description = "Database Glue/Athena da camada silver Data Vault."
   type        = string
   default     = "silver_datavault"
+}
+
+variable "gold_database_name" {
+  description = "Database Glue/Athena da camada gold (views dimensionais sobre a silver)."
+  type        = string
+  default     = "gold"
+}
+
+variable "max_message_age_seconds" {
+  description = "Idade máxima tolerada da mensagem mais antiga na fila de eventos antes do alarme."
+  type        = number
+  default     = 900
 }
 
 variable "silver_cold_datasets" {

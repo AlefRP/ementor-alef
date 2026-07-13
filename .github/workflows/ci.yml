@@ -306,3 +306,11 @@ jobs:
       # Aplica exatamente o plan salvo acima.
       - name: Terraform Apply
         run: make tf-apply-plan
+
+      # A camada gold é CÓDIGO, não state: o Terraform cria o database e o
+      # workgroup, e o DDL das views (src/{cold,hot}/athena_gold/*.sql) é
+      # aplicado aqui, depois que eles existem. CREATE OR REPLACE VIEW é
+      # idempotente — rodar a cada merge é inofensivo, e uma view alterada no
+      # PR chega em produção junto com a infra que ela consulta.
+      - name: Aplicar as views da camada gold (Athena)
+        run: make athena-gold

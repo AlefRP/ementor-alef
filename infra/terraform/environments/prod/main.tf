@@ -58,12 +58,13 @@ module "governance" {
   events_queue_arn      = module.messaging.events_queue_arn
   rds_master_secret_arn = module.database.master_user_secret_arn
   rds_resource_id       = module.database.resource_id
+  api_db_user           = var.api_db_user # mesmo usuário do PGUSER da API fria
   tags                  = local.tags
 }
 
 # =====================================================================
 # ARQUITETURA — o lakehouse propriamente dito.
-# Camada fria começa no RDS; camada quente começa no SQS.
+# Camada fria começa no RDS; camada quente começa na Event API (EC2).
 # =====================================================================
 
 # ---- Camada fria: API privada (EC2) + Lambda de ingestão agendada ----
@@ -71,6 +72,9 @@ module "api_cold" {
   source = "../../modules/api_ec2"
 
   prefix                = local.prefix
+  service_name          = "api-cold"
+  service_description   = "API de data product Olist (camada fria)"
+  app_module            = "src.cold.api_orders.main:app"
   subnet_id             = module.network.private_subnet_ids[0]
   private_ip            = cidrhost(module.network.private_subnet_cidrs[0], 20) # fixo p/ SAN do cert
   security_group_id     = module.network.api_security_group_id
@@ -78,11 +82,18 @@ module "api_cold" {
   api_port              = var.api_port
   artifacts_bucket      = module.storage.bucket_ids["artifacts"]
   validate_bundle       = var.validate_bundle
-  pghost                = module.database.address
-  pgport                = module.database.port
-  pgdatabase            = module.database.db_name
-  aws_region            = data.aws_region.current.name
-  tags                  = local.tags
+
+  # Sem senha: DB_AUTH=iam faz a API assinar um token de 15 min com a role.
+  service_env = {
+    DB_AUTH            = "iam"
+    PGHOST             = module.database.address
+    PGPORT             = tostring(module.database.port)
+    PGDATABASE         = module.database.db_name
+    PGUSER             = var.api_db_user
+    AWS_DEFAULT_REGION = data.aws_region.current.name
+  }
+
+  tags = local.tags
 }
 
 module "ingestion_cold" {
@@ -101,8 +112,34 @@ module "ingestion_cold" {
   tags                = local.tags
 }
 
-# ---- Camada quente: SQS -> Lambda consumidora -> raw ----
-# Começa no SQS. Quem publica na fila é simulação (adiante).
+# ---- Camada quente: Event API (EC2) -> SQS -> Lambda consumidora -> raw ----
+# A Event API é a fronteira de entrada: valida o contrato do evento e publica na
+# fila (role ec2-api, via interface endpoint do SQS — a subnet é privada e sem
+# NAT). Quem CHAMA a API é simulação (adiante).
+module "api_events" {
+  source = "../../modules/api_ec2"
+
+  prefix                = local.prefix
+  service_name          = "api-events"
+  service_description   = "Event API de pedidos (camada quente)"
+  app_module            = "src.hot.api_events.main:app"
+  subnet_id             = module.network.private_subnet_ids[0]
+  private_ip            = cidrhost(module.network.private_subnet_cidrs[0], 21) # fixo p/ SAN do cert
+  security_group_id     = module.network.api_security_group_id
+  instance_profile_name = module.governance.ec2_api_instance_profile_name
+  api_port              = var.api_port
+  artifacts_bucket      = module.storage.bucket_ids["artifacts"]
+  validate_bundle       = var.validate_bundle
+
+  # Mesmo bundle da API fria (é o mesmo pacote Python); muda só o app servido.
+  service_env = {
+    QUEUE_URL          = module.messaging.events_queue_url
+    AWS_DEFAULT_REGION = data.aws_region.current.name
+  }
+
+  tags = local.tags
+}
+
 module "ingestion_hot" {
   source = "../../modules/hot_ingestion"
 
@@ -143,21 +180,61 @@ module "silver_datavault" {
   tags                     = local.tags
 }
 
+# ---- Camada gold + consumer: views do Athena sobre a silver ----
+# Fecha as duas camadas: o DDL das views vive em src/{cold,hot}/athena_gold e é
+# aplicado por `make athena-gold` (a esteira roda no merge, após o apply).
+module "gold" {
+  source = "../../modules/athena_gold"
+
+  prefix             = local.prefix
+  gold_database_name = var.gold_database_name
+  artifacts_bucket   = module.storage.bucket_ids["artifacts"]
+  tags               = local.tags
+}
+
+# ---- Governança: alarmes do CloudWatch ----
+# Log group todo componente já tinha; o que faltava era alguém OLHAR. Sem estes
+# alarmes, ingestão parada só aparece quando o dado velho incomoda no Athena.
+module "observability" {
+  source = "../../modules/observability"
+
+  prefix = local.prefix
+
+  lambda_function_names = {
+    "ingest-cold"    = module.ingestion_cold.function_name
+    "ingest-hot"     = module.ingestion_hot.ingest_function_name
+    "event-producer" = module.sim_event_producer.function_name
+  }
+
+  api_instance_ids = {
+    "api-cold"   = module.api_cold.instance_id
+    "api-events" = module.api_events.instance_id
+  }
+
+  events_queue_name       = module.messaging.events_queue_name
+  events_dlq_name         = module.messaging.events_dlq_name
+  max_message_age_seconds = var.max_message_age_seconds
+  alert_email             = var.silver_alert_email # mesmo destino dos alertas do Glue
+  tags                    = local.tags
+}
+
 # =====================================================================
 # SIMULAÇÃO — fora da arquitetura. Só alimenta as fronteiras de entrada
-# (SQS e RDS) para o lab ter dados. Num cenário real, quem faz isso são
-# os sistemas de origem. Remova este bloco inteiro sem afetar o lakehouse.
+# (Event API e RDS) para o lab ter dados. Num cenário real, quem faz isso
+# são os sistemas de origem. Remova este bloco inteiro sem afetar o lakehouse.
 # =====================================================================
 
-# Simula o sistema de origem que publica eventos na fila.
+# Simula o sistema de origem que emite eventos: chama a Event API (não o SQS).
 module "sim_event_producer" {
   source = "../../modules/simulation/event_producer"
 
   prefix    = local.prefix
   build_dir = "${path.module}/../../../../build/event-producer"
 
-  events_queue_url = module.messaging.events_queue_url
-  events_queue_arn = module.messaging.events_queue_arn
+  api_base_url      = module.api_events.base_url # HTTPS pelo IP privado fixo
+  api_ca_pem        = module.api_events.ca_pem
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.lambda_event_producer_security_group_id
 
   schedule_expression = var.hot_schedule
   events_per_run      = var.hot_events_per_run

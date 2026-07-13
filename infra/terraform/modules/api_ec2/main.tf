@@ -1,8 +1,12 @@
-# EC2 da API de data product (camada fria) — postura 100% privada: subnet
-# privada, sem IP público e sem NAT. O bootstrap é offline: dnf usa os
-# repositórios do AL2023 servidos via S3 (gateway endpoint) e o código chega
-# como bundle de wheels do bucket de artefatos. A senha do RDS não existe em
-# runtime: autenticação por token IAM assinado localmente (role ec2-api).
+# EC2 das APIs do lakehouse — postura 100% privada: subnet privada, sem IP
+# público e sem NAT. O bootstrap é offline: dnf usa os repositórios do AL2023
+# servidos via S3 (gateway endpoint) e o código chega como bundle de wheels do
+# bucket de artefatos. Nenhum segredo em runtime: a instância se autentica pela
+# role (token IAM no RDS na fria, SendMessage no SQS na quente).
+#
+# O módulo é genérico e serve as DUAS APIs (`service_name` + `app_module` +
+# `service_env`): fria (api_orders -> RDS) e quente (api_events -> SQS). Elas
+# compartilham o mesmo bundle de deploy, porque são o mesmo pacote Python.
 
 data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
@@ -79,19 +83,18 @@ resource "aws_instance" "this" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
-    artifacts_bucket = var.artifacts_bucket
-    bundle_key       = var.bundle_key
-    bundle_etag      = var.validate_bundle ? data.aws_s3_object.bundle[0].etag : "unverified"
-    api_port         = var.api_port
-    pghost           = var.pghost
-    pgport           = var.pgport
-    pgdatabase       = var.pgdatabase
-    pguser           = var.pguser
-    aws_region       = var.aws_region
-    tls_cert_pem     = tls_self_signed_cert.api.cert_pem
-    tls_key_pem      = tls_private_key.api.private_key_pem
+    artifacts_bucket    = var.artifacts_bucket
+    bundle_key          = var.bundle_key
+    bundle_etag         = var.validate_bundle ? data.aws_s3_object.bundle[0].etag : "unverified"
+    api_port            = var.api_port
+    service_name        = var.service_name
+    service_description = var.service_description
+    app_module          = var.app_module
+    service_env         = var.service_env
+    tls_cert_pem        = tls_self_signed_cert.api.cert_pem
+    tls_key_pem         = tls_private_key.api.private_key_pem
   })
   user_data_replace_on_change = true
 
-  tags = merge(var.tags, { Name = "${var.prefix}-api-cold" })
+  tags = merge(var.tags, { Name = "${var.prefix}-${var.service_name}" })
 }

@@ -8,13 +8,23 @@ variable "build_dir" {
   type        = string
 }
 
-variable "events_queue_url" {
-  description = "URL da fila de eventos (destino da simulação)."
+variable "api_base_url" {
+  description = "URL HTTPS da Event API (IP privado fixo da EC2) — destino da simulação."
   type        = string
 }
 
-variable "events_queue_arn" {
-  description = "ARN da fila de eventos (escopo da policy de SendMessage)."
+variable "api_ca_pem" {
+  description = "CA self-signed da Event API, usada pelo produtor para validar o TLS (certificado público, não é segredo)."
+  type        = string
+}
+
+variable "subnet_ids" {
+  description = "Subnets PRIVADAS da Lambda (a Event API só é alcançável de dentro da VPC)."
+  type        = list(string)
+}
+
+variable "security_group_id" {
+  description = "SG do produtor (egress só para a Event API; ver módulo network)."
   type        = string
 }
 
@@ -28,6 +38,12 @@ variable "events_per_run" {
   description = "Eventos gerados por execução."
   type        = number
   default     = 60
+}
+
+variable "events_per_request" {
+  description = "Eventos por requisição à Event API (o produtor pagina acima disso; teto da API: 500)."
+  type        = number
+  default     = 100
 }
 
 variable "reserved_concurrency" {

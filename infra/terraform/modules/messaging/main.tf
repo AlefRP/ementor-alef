@@ -34,11 +34,11 @@ resource "aws_sqs_queue_redrive_allow_policy" "events_dlq" {
   })
 }
 
-# Criptografia em trânsito obrigatória (custo zero): o producer fala com a fila
-# pelo endpoint público da AWS (sem VPC endpoint pago), então travamos o acesso
-# a HTTPS/TLS. Statement Deny com aws:SecureTransport=false é o padrão AWS —
-# quem NÃO usar TLS é barrado, independente da identidade. O acesso positivo
-# continua vindo das roles (least-privilege em governance/roles.tf).
+# Criptografia em trânsito obrigatória (custo zero): quem publica é a Event API,
+# de dentro da VPC, pelo interface endpoint do SQS. Statement Deny com
+# aws:SecureTransport=false é o padrão AWS — quem NÃO usar TLS é barrado,
+# independente da identidade. O acesso positivo continua vindo das roles
+# (least-privilege em governance/roles.tf).
 data "aws_iam_policy_document" "events_tls_only" {
   statement {
     sid       = "DenyNonTLS"

@@ -16,6 +16,7 @@ ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
         api-bundle-upload event-producer-bundle db-seeder-bundle seed-db \
+        athena-gold athena-gold-dry-run athena-query \
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
@@ -121,6 +122,22 @@ db-seeder-bundle:
 seed-db:
 	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw db_seeder_function_name) --cli-read-timeout 700 build/seed-response.json
 	python -c "import json;print(json.load(open('build/seed-response.json')))"
+
+# ---- Camada gold + consumer (Athena) ----
+# Aplica o DDL das views (src/{cold,hot}/athena_gold/*.sql) no database gold.
+# CREATE OR REPLACE VIEW: idempotente, roda quantas vezes quiser. A esteira
+# chama este alvo no merge à master, depois do apply.
+athena-gold:
+	python scripts/athena/apply_views.py --tf-dir $(TF_DIR)
+
+# Renderiza o DDL sem tocar a AWS (revisão do SQL no PR, sem credencial).
+athena-gold-dry-run:
+	python scripts/athena/apply_views.py --dry-run --silver-database silver_datavault --gold-database gold
+
+# Roda uma query analítica da camada consumer, ex.:
+# make athena-query QUERY=01_receita_por_categoria  (sem QUERY, lista as opções)
+athena-query:
+	python scripts/athena/run_query.py --tf-dir $(TF_DIR) $(if $(QUERY),--query $(QUERY),--list)
 
 # ---- Release (CD) ----
 # Fonte unica da versao: pyproject.toml ([project].version). Calcula a

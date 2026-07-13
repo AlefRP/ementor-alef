@@ -4,14 +4,16 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 
 ## Mapa
 
-**Fronteira que organiza o repo:** a arquitetura começa **no SQS** (quente) e **no RDS** (frio). Tudo que *alimenta* essas fronteiras é simulação e não se mistura com o lakehouse.
+**Fronteira que organiza o repo:** a arquitetura começa **na Event API** (quente) e **no RDS** (frio). Tudo que *alimenta* essas fronteiras é simulação e não se mistura com o lakehouse. Quem publica no SQS é a Event API — a simulação apenas a chama por HTTP.
 
-- `src/cold|hot/` — **arquitetura**, código de produção. `cold/api_orders` (RDS→serving), `cold/lambda_ingest` (API→raw), `hot/lambda_raw_ingest` (consome SQS→raw), `cold/glue_silver` e `hot/glue_silver_microbatch` (entrypoints dos jobs raw→silver)
+- `src/cold|hot/` — **arquitetura**, código de produção. `cold/api_orders` (RDS→serving), `cold/lambda_ingest` (API→raw), `hot/api_events` (Event API na EC2: valida o evento e publica no SQS), `hot/lambda_raw_ingest` (consome SQS→raw), `cold/glue_silver` e `hot/glue_silver_microbatch` (entrypoints dos jobs raw→silver), `cold/athena_gold` e `hot/athena_gold` (DDL das views da gold)
+- `src/consumer/` — queries analíticas sobre a gold (a ponta final do desenho)
 - `src/glue_silver_runtime/` — runtime compartilhado dos jobs Glue silver (specs Data Vault + escrita Iceberg); vai no zip via `--extra-py-files`, por isso os imports são flat (`known_first_party` no pyproject)
-- `simulation/` — **fora da arquitetura**: Lambdas que alimentam o SQS (`event_producer`) e o RDS (`db_seeder`) + os geradores Faker. Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura e sem testes** (é simulação, não lógica de negócio)
+- **A gold é código, não state:** o Terraform cria database + workgroup; as views (`CREATE OR REPLACE VIEW`) são aplicadas por `scripts/athena/apply_views.py` (`make athena-gold`), e a esteira roda isso no merge, após o apply.
+- `simulation/` — **fora da arquitetura**: Lambdas que alimentam a Event API (`event_producer`, via HTTP) e o RDS (`db_seeder`) + os geradores Faker. Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura e sem testes** (é simulação, não lógica de negócio)
 - `tests/unit|integration|taac/` — markers `integration` e `taac`
-- `infra/terraform/modules/` — mesma fronteira: `simulation/{event_producer,db_seeder}` separados dos módulos da arquitetura
-- `scripts/database/` — seed do Olist no RDS; `scripts/bundle/` — empacotamento das Lambdas/API
+- `infra/terraform/modules/` — mesma fronteira: `simulation/{event_producer,db_seeder}` separados dos módulos da arquitetura. `api_ec2` é genérico e serve as DUAS APIs (`service_name` + `app_module` + `service_env`)
+- `scripts/database/` — seed do Olist no RDS; `scripts/bundle/` — empacotamento das Lambdas/API; `scripts/athena/` — aplica a gold e roda as queries do consumer
 - `docs/` — padrões do projeto: testes AAA (`padrao-de-testes.md`) e API (`padrao-de-api.md`)
 - `.claude/` — skills, agents, commands, hooks, lessons (ver `.claude/README.md`)
 
@@ -21,6 +23,9 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 make quality        # check-format + lint + security + test (gate local completo)
 make test-cov       # cobertura (gate SonarCloud: >= 90%)
 make test-taac      # testes de arquitetura (TAAC)
+make athena-gold    # aplica as views da gold (a esteira roda no merge)
+make athena-gold-dry-run                # renderiza o DDL sem tocar a AWS
+make athena-query QUERY=<nome>          # roda uma query de src/consumer
 make tf-validate tf-lint tf-security   # gates Terraform sem AWS
 make tf-bootstrap-apply                # 1x: cria o bucket de state remoto
 make tf-plan TF_ENV=prod               # autentica na AWS — só quando necessário

@@ -34,8 +34,13 @@ output "database_master_secret_arn" {
 }
 
 output "api_cold_private_dns" {
-  description = "DNS privado da EC2 da API (consumido pela Lambda na VPC)."
+  description = "DNS privado da EC2 da API fria (consumido pela Lambda na VPC)."
   value       = module.api_cold.private_dns
+}
+
+output "api_events_base_url" {
+  description = "URL privada da Event API (camada quente) — fronteira de entrada dos eventos."
+  value       = module.api_events.base_url
 }
 
 output "ingest_cold_function" {
@@ -44,7 +49,7 @@ output "ingest_cold_function" {
 }
 
 output "event_producer_function" {
-  description = "Simulação: Lambda que publica eventos sintéticos no SQS."
+  description = "Simulação: Lambda que gera eventos e os entrega à Event API."
   value       = module.sim_event_producer.function_name
 }
 
@@ -70,5 +75,23 @@ output "silver_datavault" {
     cold_job     = module.silver_datavault.cold_job_name
     hot_job      = module.silver_datavault.hot_job_name
     alerts_topic = module.silver_datavault.job_failures_topic_arn
+  }
+}
+
+# Consumido por scripts/athena/apply_views.py e run_query.py (--tf-dir).
+output "gold" {
+  description = "Camada gold: database das views e workgroup do consumo analítico."
+  value = {
+    database  = module.gold.gold_database_name
+    workgroup = module.gold.workgroup_name
+    results   = module.gold.results_location
+  }
+}
+
+output "observability" {
+  description = "Alarmes do CloudWatch e tópico de alerta operacional."
+  value = {
+    alerts_topic = module.observability.alerts_topic_arn
+    alarms       = module.observability.alarm_names
   }
 }
