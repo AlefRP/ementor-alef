@@ -183,11 +183,16 @@ def test_buscar_pagina_monta_url_com_cursor_e_token(ambiente_da_lambda, monkeypa
 
 
 def test_buscar_pagina_rejeita_esquema_nao_suportado(ambiente_da_lambda, monkeypatch):
+    # Arrange — _configuracao() fica FORA do raises: dentro do bloco só pode
+    # haver a chamada sob teste, senão uma exceção da montagem passaria por
+    # aprovada (Sonar S5778).
     monkeypatch.setenv('API_BASE_URL', 'ftp://interno')
+    configuracao = ingest._configuracao()
     marker = {'purchased_after': ingest.KEYSET_START, 'after_id': ''}
 
+    # Act / Assert
     with pytest.raises(ValueError):
-        ingest._buscar_pagina(ingest._configuracao(), marker)
+        ingest._buscar_pagina(configuracao, marker)
 
 
 def test_chave_raw_particiona_por_data_de_execucao():
