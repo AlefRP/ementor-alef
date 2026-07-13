@@ -29,20 +29,25 @@ Este repositório contém a estrutura inicial para um projeto de lakehouse na AW
 
 ### 🔥 Camada Quente (eventos)
 
-1. Gerador de eventos (data product) em API (deploy em EC2).
-2. API publica eventos no SQS.
-3. Lambda acionada pelo SQS persiste os dados na raw (S3).
-4. Job Glue microbatch (agendado via EventBridge) transforma raw em silver (Iceberg).
-5. Views no Athena disponibilizam a camada gold.
+1. **Event API** em FastAPI (deploy em EC2): recebe eventos, valida o contrato e publica no SQS.
+2. Lambda acionada pelo SQS persiste os dados na raw (S3), com DLQ e reprocessamento por mensagem.
+3. Job Glue microbatch (agendado via EventBridge) transforma raw em silver (Iceberg).
+4. Views no Athena disponibilizam a camada gold.
+
+> A EC2 é privada e não há NAT: como o SQS **não tem gateway endpoint gratuito**, a Event API alcança a fila por um **interface endpoint** (~US$ 0,01/h) — mesmo padrão já usado pelos endpoints do SSM. A alternativa gratuita seria expor a EC2 numa subnet pública, o que furaria a postura privada do resto da arquitetura.
 
 ### 📊 Camada Consumer
 
-- Consumo analítico de dados via Athena.
+- Consumo analítico via Athena sobre a gold: queries versionadas em [`src/consumer/`](src/consumer/) (`make athena-query QUERY=<nome>`).
+
+### 🥇 Camada Gold (as duas camadas)
+
+A gold **não copia dados**: são views do Athena sobre a silver (Iceberg/Data Vault), devolvendo o modelo dimensional (`dim_`/`fact_`) que o negócio entende. O DDL é código versionado em [`src/cold/athena_gold/`](src/cold/athena_gold/) e [`src/hot/athena_gold/`](src/hot/athena_gold/); o Terraform cria só a infra (database + workgroup), e `make athena-gold` aplica as views (`CREATE OR REPLACE VIEW`, idempotente). A esteira roda isso no merge, logo após o apply.
 
 ### 🛡️ Camada de Governança
 
 - AWS Lake Formation para controle de permissões e governança do lakehouse.
-- CloudWatch para observabilidade e monitoramento de toda a arquitetura.
+- CloudWatch para observabilidade: log group em todo componente **e alarmes** — erro nas Lambdas de ingestão, mensagem na DLQ, backlog envelhecendo na fila e status check das EC2 privadas (que não têm SSH: o alarme é o único aviso). Falha de job Glue tem caminho próprio (EventBridge → SNS).
 
 ---
 
@@ -115,31 +120,36 @@ Diretórios principais do repositório (itens "a criar" são os próximos passos
 |   `-- terraform/
 |       |-- bootstrap/              ← bucket do state remoto (apply único, manual)
 |       |-- modules/                ← network, storage, database, messaging, governance,
-|       |                             api_ec2, lambda_ingest, hot_ingestion, simulation/*
+|       |                             api_ec2 (serve as DUAS APIs), lambda_ingest,
+|       |                             hot_ingestion, glue_silver, athena_gold,
+|       |                             observability, simulation/*
 |       `-- environments/
 |           `-- prod/               ← composição do ambiente de produção
 |-- scripts/
+|   |-- athena/                     ← aplica as views da gold e roda as queries do consumer
 |   |-- bundle/                     ← empacotamento das Lambdas e da API
 |   |-- database/                   ← seed do dataset Olist no RDS
 |   |-- deploy/                     ← precheck do bundle da API (gate do apply)
 |   |-- release/                    ← versionamento semver (CD)
 |   `-- teardown/                   ← esvaziamento de buckets versionados
-|-- simulation/                     ← fora da arquitetura: alimenta o SQS e o RDS (Faker)
+|-- simulation/                     ← fora da arquitetura: alimenta a Event API e o RDS (Faker)
 |   |-- db_seeder/                  ← Lambda de seed do RDS
-|   `-- event_producer/             ← Lambda que publica eventos no SQS
+|   `-- event_producer/             ← Lambda que CHAMA a Event API (não publica no SQS)
 |-- src/
 |   |-- cold/                       ← camada fria
 |   |   |-- api_orders/             ← API FastAPI async (data product Olist)
 |   |   |-- lambda_ingest/          ← Lambda EventBridge → API → raw
-|   |   |-- glue_silver/            ← a criar: job.py + config
-|   |   `-- athena_gold/            ← a criar: DDL de views .sql
+|   |   |-- glue_silver/            ← entrypoint do job Glue raw → silver (Iceberg/DV)
+|   |   `-- athena_gold/            ← DDL das views gold (dim_/fact_) em .sql
 |   |-- hot/                        ← camada quente
+|   |   |-- api_events/             ← Event API na EC2: valida o evento e publica no SQS
 |   |   |-- lambda_raw_ingest/      ← Lambda SQS → raw (batch item failures)
-|   |   |-- glue_silver_microbatch/ ← a criar: job.py
-|   |   `-- athena_gold/            ← a criar: DDL de views .sql
-|   `-- consumer/                   ← a criar: queries analíticas (Athena)
+|   |   |-- glue_silver_microbatch/ ← entrypoint do job Glue microbatch
+|   |   `-- athena_gold/            ← DDL das views gold de eventos
+|   |-- glue_silver_runtime/        ← runtime compartilhado dos jobs (specs DV + Iceberg)
+|   `-- consumer/                   ← queries analíticas sobre a gold (Athena)
 |-- tests/
-|   |-- unit/                       ← unitários (cold/ e hot/)
+|   |-- unit/                       ← unitários (cold/, hot/, gold/, glue_silver/)
 |   |-- integration/                ← integração (marker `integration`)
 |   `-- taac/                       ← testes de arquitetura (estático + live)
 |-- Makefile                        ← fonte única dos comandos (local e esteira)

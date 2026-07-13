@@ -16,6 +16,7 @@ ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
         api-bundle-upload event-producer-bundle db-seeder-bundle seed-db \
+        athena-gold athena-gold-dry-run athena-query \
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
@@ -44,11 +45,23 @@ lint: check-format
 	python -m compileall src simulation tests
 
 # ---- Segurança ----
-# Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
-# disponível sem trocar de formatador; dev-only, só formata código do repo.
+# CVEs ignorados no pip-audit — todos do black, que o blue 0.9.1 fixa como
+# `black==22.1.0`: nenhum tem upgrade possível sem trocar de formatador. O
+# black aqui é dev-only e roda só sobre o código do repo, com flags fixas
+# (`blue src simulation tests`), o que põe os três fora do nosso alcance:
+#   PYSEC-2024-48 (CVE-2024-21503) — ReDoS ao formatar docstring hostil.
+#   PYSEC-2026-2120 (CVE-2026-31900) — RCE na GitHub Action do black com
+#     `use_pyproject: true`; a esteira não usa essa action.
+#   PYSEC-2026-2121 (CVE-2026-32274) — path traversal na escrita do cache
+#     quando `--python-cell-magics` vem do atacante; nunca passamos essa flag.
+# Listados por ID PYSEC (o que o pip-audit reporta); os GHSA são os aliases.
+PIP_AUDIT_IGNORE := PYSEC-2024-48 \
+                    PYSEC-2026-2120 GHSA-v53h-f6m7-xcgm \
+                    PYSEC-2026-2121 GHSA-3936-cmfr-pm3m
+
 # bandit só lê [tool.bandit] do pyproject com -c explícito.
 security:
-	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
+	pip-audit --skip-editable $(addprefix --ignore-vuln ,$(PIP_AUDIT_IGNORE))
 	bandit -c pyproject.toml -r src simulation -f json
 
 security-deps:
@@ -109,6 +122,22 @@ db-seeder-bundle:
 seed-db:
 	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw db_seeder_function_name) --cli-read-timeout 700 build/seed-response.json
 	python -c "import json;print(json.load(open('build/seed-response.json')))"
+
+# ---- Camada gold + consumer (Athena) ----
+# Aplica o DDL das views (src/{cold,hot}/athena_gold/*.sql) no database gold.
+# CREATE OR REPLACE VIEW: idempotente, roda quantas vezes quiser. A esteira
+# chama este alvo no merge à master, depois do apply.
+athena-gold:
+	python scripts/athena/apply_views.py --tf-dir $(TF_DIR)
+
+# Renderiza o DDL sem tocar a AWS (revisão do SQL no PR, sem credencial).
+athena-gold-dry-run:
+	python scripts/athena/apply_views.py --dry-run --silver-database silver_datavault --gold-database gold
+
+# Roda uma query analítica da camada consumer, ex.:
+# make athena-query QUERY=01_receita_por_categoria  (sem QUERY, lista as opções)
+athena-query:
+	python scripts/athena/run_query.py --tf-dir $(TF_DIR) $(if $(QUERY),--query $(QUERY),--list)
 
 # ---- Release (CD) ----
 # Fonte unica da versao: pyproject.toml ([project].version). Calcula a

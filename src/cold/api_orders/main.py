@@ -16,25 +16,25 @@ from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 
-from src.cold.api_orders.api.v1.api import build_api_router
-from src.cold.api_orders.core.configs import Settings, get_settings
-from src.cold.api_orders.core.database import create_pool
-from src.cold.api_orders.core.deps import require_token
+from src.cold.api_orders.api.v1.api import montar_roteador_v1
+from src.cold.api_orders.core.configs import Settings, obter_configuracoes
+from src.cold.api_orders.core.database import criar_pool
+from src.cold.api_orders.core.deps import exigir_token
 
 logger = logging.getLogger('api_orders')
 logger.setLevel(logging.INFO)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
     """Abre o pool no startup e fecha no shutdown (graceful)."""
-    app.state.pool = create_pool(get_settings())
+    app.state.pool = criar_pool(obter_configuracoes())
     await app.state.pool.open()
     yield
     await app.state.pool.close()
 
 
-def _init_cache(settings: Settings) -> None:
+def _inicializar_cache(settings: Settings) -> None:
     """Cache-aside: in-memory (1 instância) ou Redis quando REDIS_URL existir."""
     if settings.REDIS_URL:
         # Import tardio: redis só é dependência quando o backend é usado
@@ -60,24 +60,24 @@ def _init_cache(settings: Settings) -> None:
     )
 
 
-def create_app() -> FastAPI:
+def criar_app() -> FastAPI:
     """Fábrica da aplicação (facilita testes e configuração por ambiente)."""
-    settings = get_settings()
-    app = FastAPI(title=settings.PROJECT_NAME, version='1.0.0', lifespan=lifespan)
-    _init_cache(settings)
+    settings = obter_configuracoes()
+    app = FastAPI(title=settings.PROJECT_NAME, version='1.0.0', lifespan=ciclo_de_vida)
+    _inicializar_cache(settings)
     app.include_router(
-        build_api_router(settings.CACHE_TTL_SECONDS),
+        montar_roteador_v1(),
         prefix=settings.API_V1_STR,
-        dependencies=[Depends(require_token)],
+        dependencies=[Depends(exigir_token)],
     )
 
     @app.get('/health', tags=['infra'])
-    async def health() -> dict[str, str]:
+    async def saude() -> dict[str, str]:
         """Disponibilidade da API sem tocar o banco (probe da Lambda)."""
         return {'status': 'ok'}
 
     @app.middleware('http')
-    async def observability(request: Request, call_next) -> Response:
+    async def observabilidade(request: Request, call_next) -> Response:
         """Correlation id + access log JSON + resposta 500 padronizada."""
         cid = request.headers.get('x-correlation-id') or str(uuid.uuid4())
         request.state.correlation_id = cid
@@ -116,5 +116,4 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
-
+app = criar_app()

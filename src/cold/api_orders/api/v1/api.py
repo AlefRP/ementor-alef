@@ -29,7 +29,7 @@ _TABLE_ROUTERS = (
 )
 
 
-def build_api_router(cache_ttl: int) -> APIRouter:
+def montar_roteador_v1() -> APIRouter:
     """Monta o v1 por aplicação (o TTL do cache é decisão de configuração)."""
     api_router = APIRouter()
     api_router.include_router(orders.router, prefix='/orders', tags=['orders'])
@@ -40,4 +40,3 @@ def build_api_router(cache_ttl: int) -> APIRouter:
             tags=[tag],
         )
     return api_router
-

@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 import psycopg
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, status
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 
@@ -19,17 +19,17 @@ class DatasetSpec:
     model: type[BaseModel]
 
 
-def _url_key_builder(
+def _construir_chave_por_url(
     func, namespace='', *, request=None, response=None, args=(), kwargs=None
 ):
     """Chave por URL completa: unica por tabela, cursor e tamanho de pagina."""
     return f'{namespace}:{request.url.path}?{request.url.query}'
 
 
-cache_table_route = cache(key_builder=_url_key_builder)
+cache_de_rota = cache(key_builder=_construir_chave_por_url)
 
 
-def _select_sql(spec: DatasetSpec, with_cursor: bool) -> str:
+def _montar_sql_select(spec: DatasetSpec, with_cursor: bool) -> str:
     """SQL montado só de metadados do spec - nunca de input do cliente."""
     columns = ', '.join(spec.model.model_fields)
     keys = ', '.join(spec.key_columns)
@@ -45,9 +45,8 @@ def _select_sql(spec: DatasetSpec, with_cursor: bool) -> str:
     )
 
 
-async def list_table_rows(
+async def listar_linhas_da_tabela(
     *,
-    request: Request,
     spec: DatasetSpec,
     conn: psycopg.AsyncConnection,
     after: list[str] | None,
@@ -69,7 +68,7 @@ async def list_table_rows(
     for i, value in enumerate(cursor_values):
         params[f'key{i}'] = value
 
-    sql = _select_sql(spec, with_cursor=bool(cursor_values))
+    sql = _montar_sql_select(spec, with_cursor=bool(cursor_values))
     db_cursor = await conn.execute(sql, params)
     rows = await db_cursor.fetchall()
     items = [spec.model(**row) for row in rows]
@@ -81,6 +80,3 @@ async def list_table_rows(
     page_model = DatasetPage[spec.model]
     page = page_model(items=items, next_cursor=next_cursor)
     return page
-
-
-

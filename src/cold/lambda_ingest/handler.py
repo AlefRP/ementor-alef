@@ -27,7 +27,7 @@ KEYSET_START = '1900-01-01T00:00:00'
 _S3 = None
 
 
-def _s3_client():
+def _cliente_s3():
     """Client S3 reaproveitado entre invocações warm."""
     global _S3
     if _S3 is None:
@@ -35,13 +35,13 @@ def _s3_client():
     return _S3
 
 
-def _config(event: dict | None = None) -> dict:
+def _configuracao(event: dict | None = None) -> dict:
     """Configuração do ambiente, sobreposta pelo input do EventBridge.
 
     O input do alvo (``{"dataset": ..., "cursor_mode": ...}``) permite que uma
     única função atenda N datasets — cada regra injeta o seu.
     """
-    config = {
+    configuracao = {
         'api_base_url': os.environ['API_BASE_URL'].rstrip('/'),
         'raw_bucket': os.environ['RAW_BUCKET'],
         'dataset': os.environ.get('DATASET', 'orders'),
@@ -52,133 +52,135 @@ def _config(event: dict | None = None) -> dict:
         'api_token': os.environ.get('API_TOKEN', ''),
         'ca_file': os.environ.get('API_CA_FILE', ''),
     }
-    for key in ('dataset', 'cursor_mode', 'page_size', 'max_pages'):
-        if event and key in event:
-            config[key] = event[key]
-    config['page_size'] = int(config['page_size'])
-    config['max_pages'] = int(config['max_pages'])
-    return config
+    for chave in ('dataset', 'cursor_mode', 'page_size', 'max_pages'):
+        if event and chave in event:
+            configuracao[chave] = event[chave]
+    configuracao['page_size'] = int(configuracao['page_size'])
+    configuracao['max_pages'] = int(configuracao['max_pages'])
+    return configuracao
 
 
-def _marker_key(dataset: str) -> str:
+def _chave_do_marker(dataset: str) -> str:
     return f'_markers/{dataset}.json'
 
 
-def _initial_marker(cursor_mode: str) -> dict:
+def _marker_inicial(cursor_mode: str) -> dict:
     if cursor_mode == 'pk':
         return {'after': []}
     return {'purchased_after': KEYSET_START, 'after_id': ''}
 
 
-def _read_marker(bucket: str, dataset: str, cursor_mode: str) -> dict:
+def _ler_marker(bucket: str, dataset: str, cursor_mode: str) -> dict:
     """Cursor da última execução; começa do início se ainda não existir."""
-    client = _s3_client()
+    cliente = _cliente_s3()
     try:
-        response = client.get_object(Bucket=bucket, Key=_marker_key(dataset))
-    except client.exceptions.NoSuchKey:
-        return _initial_marker(cursor_mode)
-    return json.loads(response['Body'].read())
+        resposta = cliente.get_object(Bucket=bucket, Key=_chave_do_marker(dataset))
+    except cliente.exceptions.NoSuchKey:
+        return _marker_inicial(cursor_mode)
+    return json.loads(resposta['Body'].read())
 
 
-def _fetch_page(config: dict, marker: dict) -> dict:
+def _buscar_pagina(configuracao: dict, marker: dict) -> dict:
     """Busca uma página da API respeitando o cursor keyset."""
-    if config['cursor_mode'] == 'pk':
-        pairs = [('after', value) for value in marker['after']]
-        pairs.append(('page_size', config['page_size']))
-        query = urllib.parse.urlencode(pairs)
+    if configuracao['cursor_mode'] == 'pk':
+        pares = [('after', valor) for valor in marker['after']]
+        pares.append(('page_size', configuracao['page_size']))
+        query = urllib.parse.urlencode(pares)
     else:
         query = urllib.parse.urlencode(
             {
                 'purchased_after': marker['purchased_after'],
                 'after_id': marker['after_id'],
-                'page_size': config['page_size'],
+                'page_size': configuracao['page_size'],
             }
         )
-    url = f"{config['api_base_url']}/v1/{config['dataset']}?{query}"
+    url = f"{configuracao['api_base_url']}/v1/{configuracao['dataset']}?{query}"
     # S5332 suprimido: http em claro é decisão do lab — a API é interna à
     # VPC (subnet privada + security group), sem TLS no serviço interno.
     if not url.startswith(('http://', 'https://')):  # NOSONAR
         raise ValueError(f'URL com esquema não suportado: {url}')
-    request = urllib.request.Request(url)
-    if config['api_token']:
-        request.add_header('x-api-token', config['api_token'])
-    context = (
-        ssl.create_default_context(cafile=config['ca_file'])
-        if config['ca_file']
+    requisicao = urllib.request.Request(url)
+    if configuracao['api_token']:
+        requisicao.add_header('x-api-token', configuracao['api_token'])
+    contexto = (
+        ssl.create_default_context(cafile=configuracao['ca_file'])
+        if configuracao['ca_file']
         else None
     )
     # B310 suprimido: o esquema http(s) é validado logo acima.
     with urllib.request.urlopen(  # nosec B310
-        request, timeout=config['timeout'], context=context
-    ) as response:
-        return json.loads(response.read())
+        requisicao, timeout=configuracao['timeout'], context=contexto
+    ) as resposta:
+        return json.loads(resposta.read())
 
 
-def _raw_key(dataset: str, page: int, moment: datetime) -> str:
+def _chave_raw(dataset: str, pagina: int, momento: datetime) -> str:
     """Chave particionada pela data de execução (year/month/day)."""
     return (
-        f'{dataset}/year={moment:%Y}/month={moment:%m}/day={moment:%d}/'
-        f'{moment:%H%M%S}-{moment.microsecond:06d}-page{page:04d}.json'
+        f'{dataset}/year={momento:%Y}/month={momento:%m}/day={momento:%d}/'
+        f'{momento:%H%M%S}-{momento.microsecond:06d}-page{pagina:04d}.json'
     )
 
 
-def _advance_marker(config: dict, marker: dict, body: dict) -> dict:
+def _avancar_marker(configuracao: dict, marker: dict, corpo: dict) -> dict:
     """Próximo cursor: ecoa o next_cursor (pk) ou deriva do último item."""
-    if config['cursor_mode'] == 'pk':
-        next_cursor = body.get('next_cursor')
-        return {'after': next_cursor} if next_cursor else marker
-    last = body['items'][-1]
+    if configuracao['cursor_mode'] == 'pk':
+        proximo_cursor = corpo.get('next_cursor')
+        return {'after': proximo_cursor} if proximo_cursor else marker
+    ultimo = corpo['items'][-1]
     return {
-        'purchased_after': last['order_purchase_timestamp'],
-        'after_id': last['order_id'],
+        'purchased_after': ultimo['order_purchase_timestamp'],
+        'after_id': ultimo['order_id'],
     }
 
 
 def handler(event, context):
     """Ingere um dataset da API para a raw e avança o marker (retomável)."""
-    config = _config(event)
+    configuracao = _configuracao(event)
     try:
-        marker = _read_marker(
-            config['raw_bucket'], config['dataset'], config['cursor_mode']
+        marker = _ler_marker(
+            configuracao['raw_bucket'],
+            configuracao['dataset'],
+            configuracao['cursor_mode'],
         )
-        started = datetime.now(timezone.utc)
-        ingested = 0
-        pages = 0
-        for page in range(1, config['max_pages'] + 1):
-            body = _fetch_page(config, marker)
-            items = body.get('items', [])
-            if not items:
+        inicio = datetime.now(timezone.utc)
+        ingeridos = 0
+        paginas = 0
+        for pagina in range(1, configuracao['max_pages'] + 1):
+            corpo = _buscar_pagina(configuracao, marker)
+            itens = corpo.get('items', [])
+            if not itens:
                 break
-            _s3_client().put_object(
-                Bucket=config['raw_bucket'],
-                Key=_raw_key(config['dataset'], page, started),
-                Body=json.dumps(items, default=str).encode('utf-8'),
+            _cliente_s3().put_object(
+                Bucket=configuracao['raw_bucket'],
+                Key=_chave_raw(configuracao['dataset'], pagina, inicio),
+                Body=json.dumps(itens, default=str).encode('utf-8'),
             )
-            ingested += len(items)
-            pages += 1
-            marker = _advance_marker(config, marker, body)
-            if len(items) < config['page_size']:
+            ingeridos += len(itens)
+            paginas += 1
+            marker = _avancar_marker(configuracao, marker, corpo)
+            if len(itens) < configuracao['page_size']:
                 break
-        if ingested:
-            _s3_client().put_object(
-                Bucket=config['raw_bucket'],
-                Key=_marker_key(config['dataset']),
+        if ingeridos:
+            _cliente_s3().put_object(
+                Bucket=configuracao['raw_bucket'],
+                Key=_chave_do_marker(configuracao['dataset']),
                 Body=json.dumps(marker).encode('utf-8'),
             )
         logger.info(
             json.dumps(
                 {
                     'event': 'ingest_ok',
-                    'dataset': config['dataset'],
-                    'ingested': ingested,
-                    'pages': pages,
+                    'dataset': configuracao['dataset'],
+                    'ingested': ingeridos,
+                    'pages': paginas,
                     'marker': marker,
                 }
             )
         )
-        return {'statusCode': 200, 'ingested': ingested, 'pages': pages}
+        return {'statusCode': 200, 'ingested': ingeridos, 'pages': paginas}
     except Exception:
         logger.exception(
-            json.dumps({'event': 'ingest_error', 'dataset': config['dataset']})
+            json.dumps({'event': 'ingest_error', 'dataset': configuracao['dataset']})
         )
         raise

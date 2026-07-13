@@ -12,3 +12,13 @@ output "events_dlq_arn" {
   description = "ARN da DLQ de eventos."
   value       = aws_sqs_queue.events_dlq.arn
 }
+
+output "events_queue_name" {
+  description = "Nome da fila de eventos (dimensão das métricas no CloudWatch)."
+  value       = aws_sqs_queue.events.name
+}
+
+output "events_dlq_name" {
+  description = "Nome da DLQ (dimensão das métricas no CloudWatch)."
+  value       = aws_sqs_queue.events_dlq.name
+}

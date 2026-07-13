@@ -13,25 +13,25 @@ from psycopg_pool import AsyncConnectionPool
 from src.cold.api_orders.core.configs import Settings
 
 
-def resolve_password(settings: Settings) -> str:
+def resolver_senha(settings: Settings) -> str:
     """Senha do RDS: ambiente (dev) ou Secrets Manager (fallback)."""
     if settings.PGPASSWORD:
         return settings.PGPASSWORD
     if settings.SECRET_ARN:
         import boto3  # import tardio: só o caminho com SECRET_ARN usa boto3
 
-        client = boto3.client('secretsmanager')
-        payload = client.get_secret_value(SecretId=settings.SECRET_ARN)
+        cliente = boto3.client('secretsmanager')
+        payload = cliente.get_secret_value(SecretId=settings.SECRET_ARN)
         return json.loads(payload['SecretString'])['password']
     return ''
 
 
-def iam_auth_token(settings: Settings) -> str:
+def gerar_token_iam(settings: Settings) -> str:
     """Token IAM do RDS (15 min), assinado localmente — sem rede."""
     import boto3  # import tardio: só o modo iam usa boto3
 
-    client = boto3.client('rds')
-    return client.generate_db_auth_token(
+    cliente = boto3.client('rds')
+    return cliente.generate_db_auth_token(
         DBHostname=settings.PGHOST,
         Port=settings.PGPORT,
         DBUsername=settings.PGUSER,
@@ -46,17 +46,17 @@ class IamAuthPool(AsyncConnectionPool):
         super().__init__(*args, **kwargs)
 
     async def _connect(self, timeout=None):
-        self.kwargs['password'] = iam_auth_token(self._settings)
+        self.kwargs['password'] = gerar_token_iam(self._settings)
         return await super()._connect(timeout=timeout)
 
 
-def create_pool(settings: Settings) -> AsyncConnectionPool:
+def criar_pool(settings: Settings) -> AsyncConnectionPool:
     """Cria o pool fechado; o lifespan da aplicação faz open/close."""
     conninfo = (
         f'host={settings.PGHOST} port={settings.PGPORT} '
         f'dbname={settings.PGDATABASE} user={settings.PGUSER}'
     )
-    common = {
+    comum = {
         'kwargs': {'row_factory': dict_row},
         'min_size': settings.POOL_MIN_SIZE,
         'max_size': settings.POOL_MAX_SIZE,
@@ -67,7 +67,7 @@ def create_pool(settings: Settings) -> AsyncConnectionPool:
         return IamAuthPool(
             conninfo=f'{conninfo} sslmode=require',
             settings=settings,
-            **common,
+            **comum,
         )
-    common['kwargs']['password'] = resolve_password(settings)
-    return AsyncConnectionPool(conninfo=conninfo, **common)
+    comum['kwargs']['password'] = resolver_senha(settings)
+    return AsyncConnectionPool(conninfo=conninfo, **comum)

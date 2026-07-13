@@ -3,6 +3,27 @@ variable "prefix" {
   type        = string
 }
 
+variable "service_name" {
+  description = "Nome curto do serviço (ex.: api-cold, api-events) — vira o nome da unit systemd, do log de boot e da tag Name."
+  type        = string
+}
+
+variable "service_description" {
+  description = "Descrição da unit systemd (aparece no systemctl status)."
+  type        = string
+}
+
+variable "app_module" {
+  description = "Caminho de import do app ASGI servido pelo uvicorn (ex.: src.cold.api_orders.main:app)."
+  type        = string
+}
+
+variable "service_env" {
+  description = "Variáveis de ambiente da unit systemd (config da app; NUNCA segredos — a autenticação é por role da instância)."
+  type        = map(string)
+  default     = {}
+}
+
 variable "subnet_id" {
   description = "Subnet PRIVADA onde a EC2 da API roda (sem IP público)."
   type        = string
@@ -56,34 +77,6 @@ variable "validate_bundle" {
   description = "Valida a existência do bundle no plan/apply. Desligue SOMENTE no destroy (o refresh lê data sources e um bundle ausente travaria o teardown)."
   type        = bool
   default     = true
-}
-
-variable "pghost" {
-  description = "Endpoint (host) do RDS PostgreSQL."
-  type        = string
-}
-
-variable "pgport" {
-  description = "Porta do RDS PostgreSQL."
-  type        = number
-  default     = 5432
-}
-
-variable "pgdatabase" {
-  description = "Database do Olist no RDS."
-  type        = string
-  default     = "olist"
-}
-
-variable "pguser" {
-  description = "Usuário do banco com grant rds_iam (IAM auth, sem senha)."
-  type        = string
-  default     = "api_reader"
-}
-
-variable "aws_region" {
-  description = "Região usada na assinatura local do token IAM do RDS."
-  type        = string
 }
 
 variable "tags" {

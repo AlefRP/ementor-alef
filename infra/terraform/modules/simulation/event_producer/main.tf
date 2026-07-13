@@ -1,12 +1,13 @@
 # SIMULAÇÃO — não faz parte da arquitetura do lakehouse.
 #
-# Gera eventos sintéticos de pedidos e os publica no SQS. A arquitetura da
-# camada quente começa DEPOIS: do SQS para a frente (modules/hot_ingestion).
-# Num cenário real, quem publica na fila seria um sistema de origem.
+# Gera eventos sintéticos de pedidos e os entrega à EVENT API (EC2), que é a
+# fronteira de entrada da camada quente. A arquitetura começa DEPOIS: Event API
+# -> SQS -> Lambda -> raw. Num cenário real, quem chamaria a API seria o sistema
+# de origem — este produtor ocupa esse lugar.
 #
-# Roda FORA da VPC de propósito: o SQS não tem gateway endpoint gratuito, e
-# daqui a fila é alcançada pelo endpoint público da AWS com TLS + IAM (a policy
-# da fila nega conexões não-TLS).
+# Roda DENTRO da VPC porque a API é privada (sem IP público): alcança a EC2 pelo
+# IP fixo e valida o TLS contra a CA da própria API. Ela NÃO fala com o SQS —
+# publicar na fila é responsabilidade da API, não da simulação.
 #
 # A role vive aqui, e não em governance: governance é a governança do data
 # lake (roles das camadas fria/quente, Glue, EC2), não da simulação.
@@ -24,29 +25,23 @@ data "aws_iam_policy_document" "assume" {
 
 resource "aws_iam_role" "producer" {
   name               = "${var.prefix}-sim-event-producer"
-  description        = "Simulacao: Lambda que publica eventos sinteticos no SQS"
+  description        = "Simulacao: Lambda que entrega eventos sinteticos a Event API"
   assume_role_policy = data.aws_iam_policy_document.assume.json
 
   tags = var.tags
 }
 
-data "aws_iam_policy_document" "publish_events_only" {
-  statement {
-    sid       = "PublishEvents"
-    actions   = ["sqs:SendMessage"]
-    resources = [var.events_queue_arn]
-  }
-}
-
-resource "aws_iam_role_policy" "publish_events_only" {
-  name   = "publish-events-only"
-  role   = aws_iam_role.producer.id
-  policy = data.aws_iam_policy_document.publish_events_only.json
-}
-
+# Sem policy própria: a simulação só faz uma chamada HTTP à API dentro da VPC.
+# Não há permissão de SQS aqui — publicar na fila é da API (role ec2-api).
 resource "aws_iam_role_policy_attachment" "logs" {
   role       = aws_iam_role.producer.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# ENIs nas subnets privadas (exigência de qualquer Lambda em VPC).
+resource "aws_iam_role_policy_attachment" "vpc" {
+  role       = aws_iam_role.producer.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 resource "aws_iam_role_policy_attachment" "xray" {
@@ -71,12 +66,11 @@ resource "aws_cloudwatch_log_group" "producer" {
 }
 
 resource "aws_lambda_function" "producer" {
-  #checkov:skip=CKV_AWS_117: fora da VPC de proposito - o SQS nao tem gateway endpoint gratuito; a funcao so fala com o SQS via TLS/IAM
   #checkov:skip=CKV_AWS_116: EventBridge ja faz retry; producer e stateless e a proxima execucao repoe os eventos
-  #checkov:skip=CKV_AWS_173: variaveis de ambiente sem segredo; chave gerenciada da AWS basta
+  #checkov:skip=CKV_AWS_173: variaveis de ambiente sem segredo (API_CA_PEM e certificado publico); chave gerenciada da AWS basta
   #checkov:skip=CKV_AWS_272: deploy via Terraform com source_code_hash; code signing fora do escopo da mentoria
   function_name = "${var.prefix}-event-producer"
-  description   = "Simulacao: gera eventos sinteticos de pedidos e publica no SQS"
+  description   = "Simulacao: gera eventos sinteticos e entrega a Event API"
   role          = aws_iam_role.producer.arn
 
   filename         = data.archive_file.producer.output_path
@@ -96,10 +90,18 @@ resource "aws_lambda_function" "producer" {
     mode = "Active"
   }
 
+  # Na VPC: a Event API é privada, só alcançável de dentro dela.
+  vpc_config {
+    subnet_ids         = var.subnet_ids
+    security_group_ids = [var.security_group_id]
+  }
+
   environment {
     variables = {
-      QUEUE_URL      = var.events_queue_url
-      EVENTS_PER_RUN = tostring(var.events_per_run)
+      API_BASE_URL       = var.api_base_url
+      API_CA_PEM         = var.api_ca_pem # CA self-signed da API (público)
+      EVENTS_PER_RUN     = tostring(var.events_per_run)
+      EVENTS_PER_REQUEST = tostring(var.events_per_request)
     }
   }
 

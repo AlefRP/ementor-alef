@@ -79,7 +79,7 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
 - Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
 
-## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local
+## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local [recorrente 2x — promovida ao CLAUDE.md]
 - Sintoma: `make check-format` quebrou no CI (`would reformat tests/taac/test_terraform_static.py`) depois que eu declarei o código formatado sem conseguir rodar o blue (crash no Python 3.14 local).
 - Causa raiz: assumi o estilo do black para `assert cond, msg` — ele envolve a CONDIÇÃO em parênteses, não a mensagem. Ausência de ferramenta virou suposição.
 - Regra: se o formatador não roda na versão local do Python, rode na versão do CI com `uv run --python 3.11 --with blue==0.9.1 --no-project blue --check src tests`. Nunca dizer "formatado" sem executar o gate.
@@ -139,7 +139,32 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: nome = prefixo (26) + sufixo fixo (13) + dataset (33) = 73 chars; assumi que nome composto "cabe" sem somar.
 - Regra: nome derivado de lista/variável ganha `substr(..., 0, <limite>)` com comentário; o valor íntegro vai em campo sem limite apertado (input/tag). Conferir limites: EventBridge rule 64, IAM role 64, statement_id 100.
 
+## 2026-07-10 · processo · Docstrings dos jobs Glue entregues em inglês
+- Sintoma: usuário corrigiu — os arquivos novos do Glue silver saíram com docstrings/descriptions em inglês; o projeto inteiro deve ser PT-BR.
+- Causa raiz: "Docs e commits em PT-BR" do CLAUDE.md foi lido como README/commits apenas; docstrings, comentários e descriptions de Terraform ficaram fora.
+- Regra: TODO texto autoral em PT-BR — docstrings, comentários, descriptions de Terraform, READMEs de módulo. CLAUDE.md atualizado para explicitar.
+
 ## 2026-07-10 · ci · Precheck de apply só no alvo manual; a esteira aplicava sem ele
 - Sintoma: rollback.yml (mode=apply) num ambiente do zero morreu após ~11 min: `data.aws_s3_object.bundle` "couldn't find resource" — infra parcial.
 - Causa raiz: ensure_api_bundle.py ligado só no `make tf-apply`; o caminho da esteira (tf-plan-out → tf-apply-plan) não publica o bundle, e no bootstrap o gate é adiado para o apply (bucket unknown no plan).
 - Regra: invariante de pré-apply mora num alvo make único (tf-ensure-bundle) chamado por TODOS os caminhos que aplicam — manual e esteira (AUTO_APPROVE=1 OVERWRITE=1).
+
+## 2026-07-13 · tool · Here-string do PowerShell (`@'...'@`) usada na tool Bash
+- Sintoma: `git commit -m @'...'@` no Bash gravou a mensagem com um `@` solto na 1ª e na última linha; precisou de `--amend`.
+- Causa raiz: `@'...'@` é sintaxe PowerShell; o Bash só concatena os `@` literais à string. As duas tools coexistem e eu misturei as sintaxes.
+- Regra: mensagem multilinha na tool Bash vai por heredoc (`git commit -F - <<'EOF'`); `@'...'@` só na tool PowerShell.
+
+## 2026-07-13 · python · TestClient sem `with` não roda o lifespan
+- Sintoma: 6 testes da Event API falharam com `'State' object has no attribute 'sqs'` — o endpoint lia `app.state.sqs`, criado no lifespan.
+- Causa raiz: `TestClient(app)` só dispara startup/shutdown quando usado como CONTEXT MANAGER. Os testes da API fria não pegam isso porque usam `dependency_overrides` e nunca tocam o `app.state`.
+- Regra: app com recurso aberto no lifespan (pool, client boto3) exige `with TestClient(app) as cliente` (ou `ExitStack` quando a fixture é fábrica); só `dependency_overrides` dispensa o `with`.
+
+## 2026-07-13 · processo · Falha de gate em código que não era meu
+- Sintoma: TAAC e checkov reprovaram em `aws_iam_policy_document.glue_security_kms` — quase "consertei" achando que era regressão da minha mudança.
+- Causa raiz: a árvore tinha alteração NÃO-COMMITADA do usuário (KMS + security configuration no glue_silver), feita em paralelo durante a sessão; o `git status` do início da sessão dizia clean.
+- Regra: gate vermelho em arquivo que você não editou → `git status --short` + `git diff HEAD -- <arquivo>` ANTES de mexer. Se o código é do usuário, reporte e pergunte; nunca reverta nem "corrija" trabalho em andamento dele.
+
+## 2026-07-13 · ci · CVE ignorado por alias GHSA mascarou um CVE distinto
+- Sintoma: `make security` quebrou com PYSEC-2026-2120 (black); ao reproduzir, o pip-audit acusou 3 CVEs — o PYSEC-2026-2121 já vinha silencioso, e o comentário do Makefile o descrevia como se fosse o ReDoS.
+- Causa raiz: o ignore list usava `GHSA-3936-cmfr-pm3m`, alias de OUTRA vuln; um CVE novo entrou na lista sem revisão porque o alias casou sozinho.
+- Regra: ignorar CVE pelo ID que o pip-audit reporta (PYSEC-*), um comentário por ID dizendo por que não nos atinge; antes de ignorar, ler a advisory no OSV (`api.osv.dev/v1/vulns/<ID>`) e reproduzir o gate (`uv run --with pip-audit --with <pkg>==<ver> --no-project pip-audit`).

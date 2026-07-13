@@ -44,9 +44,24 @@ def test_every_bucket_has_block_public_access(resources):
         )
 
 
+def _e_key_policy_de_kms(policy) -> bool:
+    """Policy de CHAVE KMS: ali, Resource '*' significa 'esta chave'.
+
+    Key policy é anexada à própria chave — não existe outro recurso para ela
+    apontar, e a AWS exige o '*'. Aplicar a regra de least-privilege aqui seria
+    um falso positivo (o escopo real é dado pelos principals e pelas actions).
+    """
+    acoes = re.findall(r'"(\w+):[\w*]+"', policy.body)
+    return bool(acoes) and set(acoes) == {'kms'}
+
+
 def test_no_wildcard_in_iam_policies(terraform_blocks):
     """Least-privilege: nenhuma policy própria com Action ou Resource '*'."""
-    policies = [b for b in terraform_blocks if b.type == 'aws_iam_policy_document']
+    policies = [
+        b
+        for b in terraform_blocks
+        if b.type == 'aws_iam_policy_document' and not _e_key_policy_de_kms(b)
+    ]
     assert policies, 'esperava policies IAM (governance)'
     for policy in policies:
         assert not re.search(
@@ -154,14 +169,14 @@ def test_every_lambda_caps_concurrency(resources):
 
 
 def test_ingest_lambdas_run_inside_vpc(resources):
-    """Tráfego privado: Lambdas que tocam a raw rodam na VPC.
+    """Tráfego privado: TODA Lambda do projeto roda dentro da VPC.
 
-    Exceção documentada: o producer (só fala com SQS, que não tem gateway
-    endpoint gratuito) roda fora da VPC.
+    Antes o producer era a exceção (falava direto com o SQS, que não tem gateway
+    endpoint gratuito). Com a Event API na EC2, quem publica na fila é a API — o
+    producer virou um cliente HTTP da API privada e entrou na VPC. Não há mais
+    exceção: nenhuma função deste repo fala com a internet.
     """
-    functions = [
-        f for f in _by_type(resources, 'aws_lambda_function') if f.name != 'producer'
-    ]
+    functions = _by_type(resources, 'aws_lambda_function')
     assert functions, 'esperava as Lambdas de ingestão (fria e quente)'
     for fn in functions:
         assert 'vpc_config' in fn.body, f'{fn.address}: Lambda fora da VPC'
@@ -193,16 +208,20 @@ def test_api_traffic_is_tls_encrypted(terraform_dir, resources):
     certs = _by_type(resources, 'tls_self_signed_cert')
     assert certs, 'esperava cert TLS self-signed para a API'
 
-    cold_lambdas = [
+    # Toda Lambda que chama uma API do lakehouse valida o TLS contra a NOSSA CA.
+    # A CA chega de duas formas, ambas aceitas: embarcada no zip (API_CA_FILE, na
+    # ingestão fria) ou inline por env var (API_CA_PEM, no produtor de eventos —
+    # o zip dele vem de um build_dir, onde o Terraform não injeta arquivo).
+    clientes_da_api = [
         f
         for f in _by_type(resources, 'aws_lambda_function')
         if 'API_BASE_URL' in f.body
     ]
-    assert cold_lambdas, 'esperava a Lambda de ingestão fria (chama a API)'
-    for fn in cold_lambdas:
+    assert clientes_da_api, 'esperava as Lambdas que chamam as APIs (fria e quente)'
+    for fn in clientes_da_api:
         assert (
-            'API_CA_FILE' in fn.body
-        ), f'{fn.address}: sem API_CA_FILE (verificação do TLS da API)'
+            'API_CA_FILE' in fn.body or 'API_CA_PEM' in fn.body
+        ), f'{fn.address}: não valida o TLS da API contra a CA do projeto'
 
 
 def test_ec2_api_is_private_encrypted_and_imdsv2(resources):
@@ -342,3 +361,165 @@ def test_db_seeder_bootstraps_on_apply(resources):
         assert (
             'pghost' in invocation.body
         ), f'{invocation.address}: trigger deve incluir pghost (RDS novo = vazio)'
+
+
+def test_silver_glue_jobs_use_iceberg_datavault(
+    resources, terraform_blocks, terraform_dir
+):
+    """Silver: jobs Glue oficiais, Iceberg habilitado e modelagem Data Vault."""
+    jobs = _by_type(resources, 'aws_glue_job')
+    assert jobs, 'esperava jobs Glue para materializar a silver'
+    job_names = {job.name for job in jobs}
+    assert {
+        'cold_datavault',
+        'hot_datavault_microbatch',
+    } <= job_names, f'jobs Glue silver faltando: {job_names}'
+
+    for job in jobs:
+        if job.name in {'cold_datavault', 'hot_datavault_microbatch'}:
+            assert (
+                'Runtime = "iceberg"' in job.body
+            ), f'{job.address}: tag Iceberg ausente'
+            assert (
+                'max_concurrent_runs = 1' in job.body
+            ), f'{job.address}: sem serializacao de runs'
+
+    module_text = (terraform_dir / 'modules' / 'glue_silver' / 'main.tf').read_text(
+        encoding='utf-8'
+    )
+    assert '--datalake-formats' in module_text, 'modulo Glue sem --datalake-formats'
+    assert (
+        'spark.sql.catalog.glue_catalog' in module_text
+    ), 'modulo Glue sem catalogo Iceberg'
+    assert (
+        '--silver_database' in module_text
+    ), 'modulo Glue sem argumento silver_database'
+    assert '--extra-py-files' in module_text, 'modulo Glue sem runtime Python modular'
+
+    databases = _by_type(resources, 'aws_glue_catalog_database')
+    assert any(
+        db.name == 'silver_datavault' for db in databases
+    ), 'esperava resource do database Glue da silver Data Vault'
+    variables_text = (
+        terraform_dir / 'modules' / 'glue_silver' / 'variables.tf'
+    ).read_text(encoding='utf-8')
+    assert 'default     = "silver_datavault"' in variables_text
+
+    eventbridge_policies = [
+        b
+        for b in terraform_blocks
+        if b.type == 'aws_iam_policy_document' and 'glue:StartJobRun' in b.body
+    ]
+    assert eventbridge_policies, 'esperava policy EventBridge -> Glue StartJobRun'
+    for policy in eventbridge_policies:
+        assert 'aws_glue_job.cold_datavault.arn' in policy.body
+        assert 'aws_glue_job.hot_datavault_microbatch.arn' in policy.body
+
+
+def test_silver_glue_failures_alert_via_sns(resources):
+    """Silver: falha/timeout de job Glue agendado não pode ficar muda.
+
+    O EventBridge captura Glue Job State Change (FAILED/TIMEOUT/ERROR) dos
+    jobs da silver e publica num tópico SNS; sem isso, um job quebrado de
+    madrugada só seria notado olhando o console.
+    """
+    rules = _by_type(resources, 'aws_cloudwatch_event_rule')
+    failure_rules = [r for r in rules if 'Glue Job State Change' in r.body]
+    assert failure_rules, 'esperava rule EventBridge de falha dos jobs Glue'
+    for rule in failure_rules:
+        for state in ('FAILED', 'TIMEOUT', 'ERROR'):
+            assert state in rule.body, f'{rule.address}: sem estado {state}'
+
+    topics = _by_type(resources, 'aws_sns_topic')
+    assert any(
+        topic.name == 'job_failures' for topic in topics
+    ), 'esperava topico SNS de falhas dos jobs Glue silver'
+
+    targets = _by_type(resources, 'aws_cloudwatch_event_target')
+    assert any(
+        'aws_sns_topic.job_failures.arn' in target.body for target in targets
+    ), 'esperava target EventBridge -> SNS para as falhas'
+
+
+def test_event_api_reaches_sqs_through_interface_endpoint(resources):
+    """Camada quente: a Event API publica na fila SEM sair da VPC.
+
+    A EC2 é privada e não há NAT; o SQS não tem gateway endpoint (só S3 e
+    DynamoDB têm). Sem o interface endpoint, a API subiria e falharia em runtime
+    ao tentar publicar — erro que só apareceria com a infra de pé.
+    """
+    endpoints = _by_type(resources, 'aws_vpc_endpoint')
+    sqs = [e for e in endpoints if '.sqs"' in e.body]
+    assert sqs, 'esperava interface endpoint de SQS (a Event API é privada)'
+    for endpoint in sqs:
+        assert (
+            'vpc_endpoint_type   = "Interface"' in endpoint.body
+            or 'vpc_endpoint_type = "Interface"' in endpoint.body
+        ), f'{endpoint.address}: SQS exige endpoint do tipo Interface'
+
+
+def test_only_the_event_api_publishes_to_the_queue(terraform_dir):
+    """Fronteira: quem publica no SQS é a API, nunca a simulação.
+
+    O produtor é um sistema de origem simulado: ele CHAMA a Event API. Se ele
+    voltasse a ter sqs:SendMessage, a fronteira da arquitetura (o desenho) teria
+    sido furada — a simulação estaria escrevendo dentro do lakehouse.
+    """
+    producer = (
+        terraform_dir / 'modules' / 'simulation' / 'event_producer' / 'main.tf'
+    ).read_text(encoding='utf-8')
+    assert (
+        'sqs:SendMessage' not in producer
+    ), 'a simulação não pode publicar na fila: quem publica é a Event API'
+
+    governance = (terraform_dir / 'modules' / 'governance' / 'roles.tf').read_text(
+        encoding='utf-8'
+    )
+    assert (
+        'sqs:SendMessage' in governance
+    ), 'a role da EC2 das APIs deve manter o SendMessage na fila'
+
+
+def test_gold_layer_is_queryable_and_cost_capped(resources):
+    """Gold: database no catálogo + workgroup com freio de custo e cifra.
+
+    Athena cobra por byte escaneado; workgroup sem bytes_scanned_cutoff é um
+    cheque em branco. enforce_workgroup_configuration impede o cliente de
+    escrever o resultado em outro bucket.
+    """
+    databases = _by_type(resources, 'aws_glue_catalog_database')
+    assert any(
+        db.name == 'gold' for db in databases
+    ), 'esperava o database gold no catálogo Glue'
+
+    workgroups = _by_type(resources, 'aws_athena_workgroup')
+    assert workgroups, 'esperava workgroup do Athena para o consumo da gold'
+    for workgroup in workgroups:
+        assert 'bytes_scanned_cutoff_per_query' in workgroup.body
+        assert 'enforce_workgroup_configuration    = true' in workgroup.body
+        assert 'encryption_option' in workgroup.body
+
+
+def test_pipeline_failures_raise_cloudwatch_alarms(resources):
+    """Governança: o pipeline não pode falhar em silêncio.
+
+    Log group todo componente já tinha; sem ALARME, ingestão parada só aparece
+    quando alguém estranha o dado velho no Athena.
+    """
+    alarms = _by_type(resources, 'aws_cloudwatch_metric_alarm')
+    assert alarms, 'esperava alarmes do CloudWatch (governança)'
+
+    metricas = {alarme.body for alarme in alarms}
+    corpo = '\n'.join(metricas)
+    for metrica in (
+        'Errors',  # Lambdas de ingestão
+        'ApproximateNumberOfMessagesVisible',  # DLQ com evento perdido
+        'ApproximateAgeOfOldestMessage',  # consumo parado / atrasado
+        'StatusCheckFailed',  # EC2 privada morreu
+    ):
+        assert metrica in corpo, f'sem alarme para a métrica {metrica}'
+
+    for alarme in alarms:
+        assert (
+            'alarm_actions' in alarme.body
+        ), f'{alarme.address}: alarme sem ação (ninguém seria avisado)'

@@ -1,1 +1,1 @@
-"""Source package root."""
+"""Raiz do pacote de código-fonte."""

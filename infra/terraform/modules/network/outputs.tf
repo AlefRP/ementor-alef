@@ -43,6 +43,11 @@ output "lambda_db_seeder_security_group_id" {
   value       = aws_security_group.lambda_db_seeder.id
 }
 
+output "lambda_event_producer_security_group_id" {
+  description = "SG da Lambda produtora de eventos (simulação, VPC) — chama a Event API."
+  value       = aws_security_group.lambda_event_producer.id
+}
+
 output "s3_endpoint_prefix_list_id" {
   description = "Prefix list do gateway endpoint de S3."
   value       = aws_vpc_endpoint.s3.prefix_list_id

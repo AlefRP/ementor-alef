@@ -43,6 +43,6 @@ class Settings(BaseSettings):
 
 
 @lru_cache(maxsize=1)
-def get_settings() -> Settings:
+def obter_configuracoes() -> Settings:
     """Instância única de Settings (testes limpam com ``cache_clear``)."""
     return Settings()

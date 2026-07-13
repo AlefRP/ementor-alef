@@ -15,7 +15,7 @@ BUCKET = 'ementor-raw-test'
 
 
 @pytest.fixture()
-def lambda_env(monkeypatch):
+def ambiente_da_lambda(monkeypatch):
     """Ambiente mínimo da Lambda com client S3 zerado por teste."""
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'testing')
     monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'testing')
@@ -28,7 +28,7 @@ def lambda_env(monkeypatch):
     ingest._S3 = None
 
 
-def _order(order_id, purchased):
+def _pedido(order_id, purchased):
     return {
         'order_id': order_id,
         'order_status': 'delivered',
@@ -36,107 +36,124 @@ def _order(order_id, purchased):
     }
 
 
-def _bucket_keys():
-    client = boto3.client('s3')
-    result = client.list_objects_v2(Bucket=BUCKET)
-    return [item['Key'] for item in result.get('Contents', [])]
+def _chaves_do_bucket():
+    cliente = boto3.client('s3')
+    resultado = cliente.list_objects_v2(Bucket=BUCKET)
+    return [item['Key'] for item in resultado.get('Contents', [])]
 
 
 @mock_aws
-def test_handler_ingests_pages_and_updates_marker(lambda_env):
+def test_handler_ingere_paginas_e_atualiza_marker(ambiente_da_lambda):
+    # Arrange — duas páginas da API; a segunda é a última (menor que page_size)
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    pages = [
+    paginas = [
         {
             'items': [
-                _order('o1', '2018-05-01T10:00:00'),
-                _order('o2', '2018-05-02T10:00:00'),
+                _pedido('o1', '2018-05-01T10:00:00'),
+                _pedido('o2', '2018-05-02T10:00:00'),
             ]
         },
-        {'items': [_order('o3', '2018-05-03T10:00:00')]},
+        {'items': [_pedido('o3', '2018-05-03T10:00:00')]},
     ]
-    with mock.patch.object(ingest, '_fetch_page', side_effect=pages):
-        result = ingest.handler({}, None)
 
-    assert result == {'statusCode': 200, 'ingested': 3, 'pages': 2}
-    keys = _bucket_keys()
-    data_keys = [key for key in keys if key.startswith('orders/')]
-    assert len(data_keys) == 2
-    for key in data_keys:
-        assert re.match(r'^orders/year=\d{4}/month=\d{2}/day=\d{2}/', key)
+    # Act
+    with mock.patch.object(ingest, '_buscar_pagina', side_effect=paginas):
+        resultado = ingest.handler({}, None)
+
+    # Assert
+    assert resultado == {'statusCode': 200, 'ingested': 3, 'pages': 2}
+    chaves_de_dados = [k for k in _chaves_do_bucket() if k.startswith('orders/')]
+    assert len(chaves_de_dados) == 2
+    for chave in chaves_de_dados:
+        assert re.match(r'^orders/year=\d{4}/month=\d{2}/day=\d{2}/', chave)
     marker = json.loads(
         boto3.client('s3')
         .get_object(Bucket=BUCKET, Key='_markers/orders.json')['Body']
         .read()
     )
-    assert marker == {
-        'purchased_after': '2018-05-03T10:00:00',
-        'after_id': 'o3',
-    }
+    assert marker == {'purchased_after': '2018-05-03T10:00:00', 'after_id': 'o3'}
 
 
 @mock_aws
-def test_handler_resumes_from_saved_marker(lambda_env):
-    client = boto3.client('s3')
-    client.create_bucket(Bucket=BUCKET)
-    saved = {'purchased_after': '2018-06-01T00:00:00', 'after_id': 'o42'}
-    client.put_object(
-        Bucket=BUCKET,
-        Key='_markers/orders.json',
-        Body=json.dumps(saved).encode(),
+def test_handler_retoma_do_marker_salvo(ambiente_da_lambda):
+    # Arrange — marker já salvo de uma execução anterior
+    cliente = boto3.client('s3')
+    cliente.create_bucket(Bucket=BUCKET)
+    salvo = {'purchased_after': '2018-06-01T00:00:00', 'after_id': 'o42'}
+    cliente.put_object(
+        Bucket=BUCKET, Key='_markers/orders.json', Body=json.dumps(salvo).encode()
     )
-    with mock.patch.object(ingest, '_fetch_page', return_value={'items': []}) as fetch:
+
+    # Act
+    with mock.patch.object(
+        ingest, '_buscar_pagina', return_value={'items': []}
+    ) as buscar:
         ingest.handler({}, None)
-    assert fetch.call_args[0][1] == saved
+
+    # Assert — a primeira busca parte do cursor salvo
+    assert buscar.call_args[0][1] == salvo
 
 
 @mock_aws
-def test_handler_without_new_data_writes_nothing(lambda_env):
+def test_handler_sem_dados_novos_nao_grava_nada(ambiente_da_lambda):
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    with mock.patch.object(ingest, '_fetch_page', return_value={'items': []}):
-        result = ingest.handler({}, None)
-    assert result == {'statusCode': 200, 'ingested': 0, 'pages': 0}
-    assert _bucket_keys() == []
+
+    with mock.patch.object(ingest, '_buscar_pagina', return_value={'items': []}):
+        resultado = ingest.handler({}, None)
+
+    assert resultado == {'statusCode': 200, 'ingested': 0, 'pages': 0}
+    assert _chaves_do_bucket() == []
 
 
 @mock_aws
-def test_handler_stops_at_max_pages(lambda_env, monkeypatch):
+def test_handler_para_no_max_pages(ambiente_da_lambda, monkeypatch):
     monkeypatch.setenv('MAX_PAGES', '1')
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    full_page = {
+    pagina_cheia = {
         'items': [
-            _order('o1', '2018-05-01T10:00:00'),
-            _order('o2', '2018-05-02T10:00:00'),
+            _pedido('o1', '2018-05-01T10:00:00'),
+            _pedido('o2', '2018-05-02T10:00:00'),
         ]
     }
-    with mock.patch.object(ingest, '_fetch_page', return_value=full_page) as fetch:
-        result = ingest.handler({}, None)
-    assert fetch.call_count == 1
-    assert result['pages'] == 1
+
+    with mock.patch.object(
+        ingest, '_buscar_pagina', return_value=pagina_cheia
+    ) as buscar:
+        resultado = ingest.handler({}, None)
+
+    assert buscar.call_count == 1
+    assert resultado['pages'] == 1
 
 
 @mock_aws
-def test_handler_propagates_api_error(lambda_env):
+def test_handler_propaga_erro_da_api(ambiente_da_lambda):
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    with mock.patch.object(ingest, '_fetch_page', side_effect=RuntimeError('API fora')):
+
+    with mock.patch.object(
+        ingest, '_buscar_pagina', side_effect=RuntimeError('API fora')
+    ):
         with pytest.raises(RuntimeError):
             ingest.handler({}, None)
-    assert _bucket_keys() == []
+
+    assert _chaves_do_bucket() == []
 
 
 @mock_aws
-def test_handler_propagates_s3_error(lambda_env):
+def test_handler_propaga_erro_do_s3(ambiente_da_lambda):
     # Bucket não existe: o put_object da primeira página deve falhar alto.
-    page = {'items': [_order('o1', '2018-05-01T10:00:00')]}
-    with mock.patch.object(ingest, '_fetch_page', return_value=page):
+    pagina = {'items': [_pedido('o1', '2018-05-01T10:00:00')]}
+
+    with mock.patch.object(ingest, '_buscar_pagina', return_value=pagina):
         with pytest.raises(ClientError):
             ingest.handler({}, None)
 
 
-def test_fetch_page_builds_url_with_cursor_and_token(lambda_env, monkeypatch):
+def test_buscar_pagina_monta_url_com_cursor_e_token(ambiente_da_lambda, monkeypatch):
+    # Arrange — captura a requisição que a Lambda faria à API
     monkeypatch.setenv('API_TOKEN', 'tok3n')
-    captured = {}
+    capturado = {}
 
-    class FakeResponse:
+    class FakeResposta:
         def read(self):
             return json.dumps({'items': []}).encode()
 
@@ -146,51 +163,63 @@ def test_fetch_page_builds_url_with_cursor_and_token(lambda_env, monkeypatch):
         def __exit__(self, *exc):
             return False
 
-    def fake_urlopen(request, timeout=None, context=None):
-        captured['url'] = request.full_url
-        captured['token'] = request.get_header('X-api-token')
-        return FakeResponse()
+    def urlopen_falso(requisicao, timeout=None, context=None):
+        capturado['url'] = requisicao.full_url
+        capturado['token'] = requisicao.get_header('X-api-token')
+        return FakeResposta()
 
-    monkeypatch.setattr(ingest.urllib.request, 'urlopen', fake_urlopen)
+    monkeypatch.setattr(ingest.urllib.request, 'urlopen', urlopen_falso)
     marker = {'purchased_after': '2018-01-01T00:00:00', 'after_id': 'o7'}
-    body = ingest._fetch_page(ingest._config(), marker)
 
-    assert body == {'items': []}
-    assert 'purchased_after=2018-01-01T00%3A00%3A00' in captured['url']
-    assert 'after_id=o7' in captured['url']
-    assert 'page_size=2' in captured['url']
-    assert captured['token'] == 'tok3n'
+    # Act
+    corpo = ingest._buscar_pagina(ingest._configuracao(), marker)
+
+    # Assert
+    assert corpo == {'items': []}
+    assert 'purchased_after=2018-01-01T00%3A00%3A00' in capturado['url']
+    assert 'after_id=o7' in capturado['url']
+    assert 'page_size=2' in capturado['url']
+    assert capturado['token'] == 'tok3n'
 
 
-def test_fetch_page_rejects_unsupported_scheme(lambda_env, monkeypatch):
+def test_buscar_pagina_rejeita_esquema_nao_suportado(ambiente_da_lambda, monkeypatch):
+    # Arrange — _configuracao() fica FORA do raises: dentro do bloco só pode
+    # haver a chamada sob teste, senão uma exceção da montagem passaria por
+    # aprovada (Sonar S5778).
     monkeypatch.setenv('API_BASE_URL', 'ftp://interno')
+    configuracao = ingest._configuracao()
     marker = {'purchased_after': ingest.KEYSET_START, 'after_id': ''}
+
+    # Act / Assert
     with pytest.raises(ValueError):
-        ingest._fetch_page(ingest._config(), marker)
+        ingest._buscar_pagina(configuracao, marker)
 
 
-def test_raw_key_partitions_by_execution_date():
-    moment = datetime(2026, 7, 7, 13, 45, 9, 123456, tzinfo=timezone.utc)
-    key = ingest._raw_key('orders', 3, moment)
-    assert key == ('orders/year=2026/month=07/day=07/134509-123456-page0003.json')
+def test_chave_raw_particiona_por_data_de_execucao():
+    momento = datetime(2026, 7, 7, 13, 45, 9, 123456, tzinfo=timezone.utc)
+
+    chave = ingest._chave_raw('orders', 3, momento)
+
+    assert chave == 'orders/year=2026/month=07/day=07/134509-123456-page0003.json'
 
 
 @mock_aws
-def test_handler_pk_mode_ingests_and_stores_opaque_marker(lambda_env):
+def test_handler_modo_pk_ingere_e_grava_marker_opaco(ambiente_da_lambda):
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    pages = [
+    paginas = [
         {
             'items': [{'customer_id': 'c1'}, {'customer_id': 'c2'}],
             'next_cursor': ['c2'],
         },
         {'items': []},
     ]
-    event = {'dataset': 'customers', 'cursor_mode': 'pk'}
-    with mock.patch.object(ingest, '_fetch_page', side_effect=pages):
-        result = ingest.handler(event, None)
+    evento = {'dataset': 'customers', 'cursor_mode': 'pk'}
 
-    assert result == {'statusCode': 200, 'ingested': 2, 'pages': 1}
-    assert any(key.startswith('customers/year=') for key in _bucket_keys())
+    with mock.patch.object(ingest, '_buscar_pagina', side_effect=paginas):
+        resultado = ingest.handler(evento, None)
+
+    assert resultado == {'statusCode': 200, 'ingested': 2, 'pages': 1}
+    assert any(k.startswith('customers/year=') for k in _chaves_do_bucket())
     marker = json.loads(
         boto3.client('s3')
         .get_object(Bucket=BUCKET, Key='_markers/customers.json')['Body']
@@ -200,25 +229,27 @@ def test_handler_pk_mode_ingests_and_stores_opaque_marker(lambda_env):
 
 
 @mock_aws
-def test_handler_pk_mode_resumes_from_saved_marker(lambda_env):
-    client = boto3.client('s3')
-    client.create_bucket(Bucket=BUCKET)
-    saved = {'after': ['c42']}
-    client.put_object(
-        Bucket=BUCKET,
-        Key='_markers/customers.json',
-        Body=json.dumps(saved).encode(),
+def test_handler_modo_pk_retoma_do_marker_salvo(ambiente_da_lambda):
+    cliente = boto3.client('s3')
+    cliente.create_bucket(Bucket=BUCKET)
+    salvo = {'after': ['c42']}
+    cliente.put_object(
+        Bucket=BUCKET, Key='_markers/customers.json', Body=json.dumps(salvo).encode()
     )
-    event = {'dataset': 'customers', 'cursor_mode': 'pk'}
-    with mock.patch.object(ingest, '_fetch_page', return_value={'items': []}) as fetch:
-        ingest.handler(event, None)
-    assert fetch.call_args[0][1] == saved
+    evento = {'dataset': 'customers', 'cursor_mode': 'pk'}
+
+    with mock.patch.object(
+        ingest, '_buscar_pagina', return_value={'items': []}
+    ) as buscar:
+        ingest.handler(evento, None)
+
+    assert buscar.call_args[0][1] == salvo
 
 
-def test_fetch_page_pk_mode_repeats_after_params(lambda_env, monkeypatch):
-    captured = {}
+def test_buscar_pagina_modo_pk_repete_params_after(ambiente_da_lambda, monkeypatch):
+    capturado = {}
 
-    class FakeResponse:
+    class FakeResposta:
         def read(self):
             return json.dumps({'items': []}).encode()
 
@@ -228,30 +259,35 @@ def test_fetch_page_pk_mode_repeats_after_params(lambda_env, monkeypatch):
         def __exit__(self, *exc):
             return False
 
-    def fake_urlopen(request, timeout=None, context=None):
-        captured['url'] = request.full_url
-        return FakeResponse()
+    def urlopen_falso(requisicao, timeout=None, context=None):
+        capturado['url'] = requisicao.full_url
+        return FakeResposta()
 
-    monkeypatch.setattr(ingest.urllib.request, 'urlopen', fake_urlopen)
-    config = ingest._config({'dataset': 'order_items', 'cursor_mode': 'pk'})
-    body = ingest._fetch_page(config, {'after': ['o1', '2']})
+    monkeypatch.setattr(ingest.urllib.request, 'urlopen', urlopen_falso)
+    configuracao = ingest._configuracao({'dataset': 'order_items', 'cursor_mode': 'pk'})
 
-    assert body == {'items': []}
-    assert '/v1/order_items?' in captured['url']
-    assert 'after=o1&after=2' in captured['url']
-    assert 'page_size=2' in captured['url']
+    corpo = ingest._buscar_pagina(configuracao, {'after': ['o1', '2']})
 
-
-def test_config_event_overrides_environment(lambda_env):
-    config = ingest._config({'dataset': 'sellers', 'cursor_mode': 'pk', 'page_size': 7})
-    assert config['dataset'] == 'sellers'
-    assert config['cursor_mode'] == 'pk'
-    assert config['page_size'] == 7
+    assert corpo == {'items': []}
+    assert '/v1/order_items?' in capturado['url']
+    assert 'after=o1&after=2' in capturado['url']
+    assert 'page_size=2' in capturado['url']
 
 
-def test_advance_marker_pk_keeps_marker_without_cursor(lambda_env):
-    """Defensivo: sem next_cursor não há como avançar — mantém o cursor."""
-    config = {'cursor_mode': 'pk'}
+def test_configuracao_com_evento_sobrepoe_ambiente(ambiente_da_lambda):
+    configuracao = ingest._configuracao(
+        {'dataset': 'sellers', 'cursor_mode': 'pk', 'page_size': 7}
+    )
+
+    assert configuracao['dataset'] == 'sellers'
+    assert configuracao['cursor_mode'] == 'pk'
+    assert configuracao['page_size'] == 7
+
+
+def test_avancar_marker_pk_mantem_marker_sem_cursor(ambiente_da_lambda):
+    # Defensivo: sem next_cursor não há como avançar — mantém o cursor.
+    configuracao = {'cursor_mode': 'pk'}
     marker = {'after': ['x']}
-    body = {'items': [{'customer_id': 'c9'}]}
-    assert ingest._advance_marker(config, marker, body) == marker
+    corpo = {'items': [{'customer_id': 'c9'}]}
+
+    assert ingest._avancar_marker(configuracao, marker, corpo) == marker

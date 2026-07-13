@@ -170,6 +170,15 @@ jobs:
           pip install "checkov>=3.2,<4"
           make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform/results_sarif.sarif'
 
+      # O checkov põe no SARIF também os achados já cobertos por #checkov:skip,
+      # e o GitHub abre um alerta de code scanning para cada um — o PR fica com
+      # dezenas de "Checkov / <regra>" mesmo com o gate acima verde. Sobe só o
+      # que ainda não tem decisão registrada no HCL (o gate segue reprovando
+      # qualquer achado não suprimido; o filtro não afeta o exit code).
+      - name: Remover achados suprimidos do SARIF
+        if: always()
+        run: python scripts/ci/filter_sarif.py infra/terraform/results_sarif.sarif
+
       - name: Upload Checkov SARIF
         if: always()
         continue-on-error: true
@@ -306,3 +315,11 @@ jobs:
       # Aplica exatamente o plan salvo acima.
       - name: Terraform Apply
         run: make tf-apply-plan
+
+      # A camada gold é CÓDIGO, não state: o Terraform cria o database e o
+      # workgroup, e o DDL das views (src/{cold,hot}/athena_gold/*.sql) é
+      # aplicado aqui, depois que eles existem. CREATE OR REPLACE VIEW é
+      # idempotente — rodar a cada merge é inofensivo, e uma view alterada no
+      # PR chega em produção junto com a infra que ela consulta.
+      - name: Aplicar as views da camada gold (Athena)
+        run: make athena-gold

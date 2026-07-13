@@ -4,6 +4,6 @@ output "function_name" {
 }
 
 output "role_arn" {
-  description = "Role da Lambda produtora (publish-events-only)."
+  description = "Role da Lambda produtora (só logs e ENI na VPC — sem acesso ao SQS)."
   value       = aws_iam_role.producer.arn
 }
