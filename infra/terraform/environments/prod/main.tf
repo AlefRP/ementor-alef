@@ -118,6 +118,31 @@ module "ingestion_hot" {
   tags = local.tags
 }
 
+# ---- Camada silver: Glue Spark -> Iceberg Raw Data Vault ----
+module "silver_datavault" {
+  source = "../../modules/glue_silver"
+
+  prefix           = local.prefix
+  role_arn         = module.governance.glue_job_role_arn
+  raw_bucket       = module.storage.bucket_ids["raw"]
+  silver_bucket    = module.storage.bucket_ids["silver"]
+  artifacts_bucket = module.storage.bucket_ids["artifacts"]
+
+  cold_job_source    = "${path.module}/../../../../src/cold/glue_silver/job.py"
+  hot_job_source     = "${path.module}/../../../../src/hot/glue_silver_microbatch/job.py"
+  runtime_source_dir = "${path.module}/../../../../src/glue_silver_runtime"
+
+  silver_database_name     = var.silver_database_name
+  cold_datasets            = var.silver_cold_datasets
+  cold_schedule_expression = var.silver_cold_schedule
+  hot_schedule_expression  = var.silver_hot_schedule
+  glue_version             = var.glue_version
+  worker_type              = var.glue_worker_type
+  number_of_workers        = var.glue_number_of_workers
+  alert_email              = var.silver_alert_email
+  tags                     = local.tags
+}
+
 # =====================================================================
 # SIMULAÇÃO — fora da arquitetura. Só alimenta as fronteiras de entrada
 # (SQS e RDS) para o lab ter dados. Num cenário real, quem faz isso são
@@ -163,3 +188,5 @@ module "sim_db_seeder" {
 
   tags = local.tags
 }
+
+

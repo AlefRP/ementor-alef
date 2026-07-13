@@ -62,3 +62,13 @@ output "execution_roles" {
     ec2_api_profile    = module.governance.ec2_api_instance_profile_name
   }
 }
+
+output "silver_datavault" {
+  description = "Recursos Glue da camada silver Data Vault."
+  value = {
+    database     = module.silver_datavault.silver_database_name
+    cold_job     = module.silver_datavault.cold_job_name
+    hot_job      = module.silver_datavault.hot_job_name
+    alerts_topic = module.silver_datavault.job_failures_topic_arn
+  }
+}

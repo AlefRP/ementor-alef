@@ -35,6 +35,7 @@ test = [
   "httpx==0.28.1", # TestClient do FastAPI
   "moto[s3,sqs]==5.2.2", # mock de S3/SQS nos testes das Lambdas
   "faker==38.2.0", # producer da camada quente (empacotado no zip em runtime)
+  "pyspark>=3.5,<3.6", # runtime dos jobs Glue silver (Glue 5.0 = Spark 3.5)
   "aws-lakehouse-mentoria[api]", # testes importam src/cold/api_fastapi
 ]
 # Conjunto completo de ferramentas de desenvolvimento (inclui [test] e [api]).
@@ -65,6 +66,8 @@ line-length = 88
 profile = "black"
 line_length = 88
 src_paths = ["src", "simulation", "tests"]
+# Módulos do runtime Glue importados de forma flat (--extra-py-files no job).
+known_first_party = ["cold_specs", "hot_specs", "iceberg", "raw", "vault"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "build"]
@@ -75,6 +78,23 @@ skips = ["B101"]
 # pastas diferentes ao rodar `pytest` sobre toda a árvore de testes.
 addopts = "-q --import-mode=importlib"
 testpaths = ["tests"]
+# docs/ tem exemplos didáticos (test_codigo.py) que NÃO são a suíte do projeto.
+# testpaths já limita `pytest` puro a tests/; norecursedirs blinda também a
+# coleta recursiva (`pytest .`). Rodar um exemplo à mão continua possível
+# apontando o arquivo: `pytest docs/test_codigo.py`. Defaults do pytest
+# preservados para não desproteger .git/venv/build.
+norecursedirs = [
+  "*.egg",
+  ".*",
+  "_darcs",
+  "build",
+  "CVS",
+  "dist",
+  "node_modules",
+  "venv",
+  "{arch}",
+  "docs",
+]
 markers = [
   "integration: marks tests as integration",
   "taac: marks tests as TAAC",
@@ -83,6 +103,12 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 branch = true
+# Entrypoints dos jobs Glue importam awsglue, que só existe dentro do Glue —
+# a lógica deles vive em src/glue_silver_runtime, que É coberta pelos testes.
+omit = [
+  "src/cold/glue_silver/job.py",
+  "src/hot/glue_silver_microbatch/job.py",
+]
 
 [tool.coverage.report]
 show_missing = true

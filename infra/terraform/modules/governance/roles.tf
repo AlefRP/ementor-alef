@@ -177,6 +177,28 @@ data "aws_iam_policy_document" "glue_s3" {
     ]
     resources = [var.silver_bucket_arn, "${var.silver_bucket_arn}/*"]
   }
+
+  statement {
+    sid       = "ReadGlueArtifacts"
+    actions   = ["s3:GetObject"]
+    resources = ["${var.artifacts_bucket_arn}/glue/*"]
+  }
+
+  statement {
+    sid = "WriteGlueTemp"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = ["${var.artifacts_bucket_arn}/glue/tmp/*"]
+  }
+
+  statement {
+    sid       = "ListGlueArtifacts"
+    actions   = ["s3:ListBucket"]
+    resources = [var.artifacts_bucket_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "glue_s3" {
@@ -268,3 +290,4 @@ resource "aws_iam_instance_profile" "ec2_api" {
 
   tags = var.tags
 }
+

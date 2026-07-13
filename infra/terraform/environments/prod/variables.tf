@@ -66,3 +66,51 @@ variable "validate_bundle" {
   type        = bool
   default     = true
 }
+
+variable "silver_database_name" {
+  description = "Database Glue/Athena da camada silver Data Vault."
+  type        = string
+  default     = "silver_datavault"
+}
+
+variable "silver_cold_datasets" {
+  description = "Datasets raw frios processados pelo job Glue silver; use all para todos."
+  type        = string
+  default     = "all"
+}
+
+variable "silver_cold_schedule" {
+  description = "Agenda do job Glue batch cold raw -> silver."
+  type        = string
+  default     = "rate(2 hours)"
+}
+
+variable "silver_hot_schedule" {
+  description = "Agenda do job Glue microbatch hot raw -> silver."
+  type        = string
+  default     = "rate(15 minutes)"
+}
+
+variable "glue_version" {
+  description = "Versao do AWS Glue para jobs Spark/Iceberg."
+  type        = string
+  default     = "5.0"
+}
+
+variable "glue_worker_type" {
+  description = "Tipo de worker Glue para a camada silver."
+  type        = string
+  default     = "G.1X"
+}
+
+variable "glue_number_of_workers" {
+  description = "Numero de workers dos jobs Glue silver."
+  type        = number
+  default     = 2
+}
+
+variable "silver_alert_email" {
+  description = "E-mail (opcional) que assina o topico SNS de falhas dos jobs Glue silver."
+  type        = string
+  default     = ""
+}
