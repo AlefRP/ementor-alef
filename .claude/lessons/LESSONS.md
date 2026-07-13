@@ -154,6 +154,16 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: `@'...'@` é sintaxe PowerShell; o Bash só concatena os `@` literais à string. As duas tools coexistem e eu misturei as sintaxes.
 - Regra: mensagem multilinha na tool Bash vai por heredoc (`git commit -F - <<'EOF'`); `@'...'@` só na tool PowerShell.
 
+## 2026-07-13 · python · TestClient sem `with` não roda o lifespan
+- Sintoma: 6 testes da Event API falharam com `'State' object has no attribute 'sqs'` — o endpoint lia `app.state.sqs`, criado no lifespan.
+- Causa raiz: `TestClient(app)` só dispara startup/shutdown quando usado como CONTEXT MANAGER. Os testes da API fria não pegam isso porque usam `dependency_overrides` e nunca tocam o `app.state`.
+- Regra: app com recurso aberto no lifespan (pool, client boto3) exige `with TestClient(app) as cliente` (ou `ExitStack` quando a fixture é fábrica); só `dependency_overrides` dispensa o `with`.
+
+## 2026-07-13 · processo · Falha de gate em código que não era meu
+- Sintoma: TAAC e checkov reprovaram em `aws_iam_policy_document.glue_security_kms` — quase "consertei" achando que era regressão da minha mudança.
+- Causa raiz: a árvore tinha alteração NÃO-COMMITADA do usuário (KMS + security configuration no glue_silver), feita em paralelo durante a sessão; o `git status` do início da sessão dizia clean.
+- Regra: gate vermelho em arquivo que você não editou → `git status --short` + `git diff HEAD -- <arquivo>` ANTES de mexer. Se o código é do usuário, reporte e pergunte; nunca reverta nem "corrija" trabalho em andamento dele.
+
 ## 2026-07-13 · ci · CVE ignorado por alias GHSA mascarou um CVE distinto
 - Sintoma: `make security` quebrou com PYSEC-2026-2120 (black); ao reproduzir, o pip-audit acusou 3 CVEs — o PYSEC-2026-2121 já vinha silencioso, e o comentário do Makefile o descrevia como se fosse o ReDoS.
 - Causa raiz: o ignore list usava `GHSA-3936-cmfr-pm3m`, alias de OUTRA vuln; um CVE novo entrou na lista sem revisão porque o alias casou sozinho.
