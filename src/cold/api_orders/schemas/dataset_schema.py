@@ -106,4 +106,3 @@ class OrderReview(BaseModel):
     review_comment_message: str | None = None
     review_creation_date: datetime | None = None
     review_answer_timestamp: datetime | None = None
-

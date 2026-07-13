@@ -13,7 +13,7 @@ BUCKET = 'raw-quente-teste'
 
 
 @pytest.fixture()
-def ingest_env(monkeypatch):
+def ambiente_da_lambda(monkeypatch):
     """Ambiente mínimo da Lambda com client S3 zerado por teste."""
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'testing')
     monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'testing')
@@ -24,76 +24,86 @@ def ingest_env(monkeypatch):
     ingest._S3 = None
 
 
-def _sqs_event(*records):
-    return {'Records': list(records)}
+def _evento_sqs(*registros):
+    return {'Records': list(registros)}
 
 
-def _record(message_id, body):
-    return {'messageId': message_id, 'body': body}
+def _registro(id_mensagem, corpo):
+    return {'messageId': id_mensagem, 'body': corpo}
 
 
-def _bucket_keys():
-    result = boto3.client('s3').list_objects_v2(Bucket=BUCKET)
-    return [item['Key'] for item in result.get('Contents', [])]
+def _chaves_do_bucket():
+    resultado = boto3.client('s3').list_objects_v2(Bucket=BUCKET)
+    return [item['Key'] for item in resultado.get('Contents', [])]
 
 
 @mock_aws
-def test_handler_stores_one_object_per_message(ingest_env):
+def test_handler_grava_um_objeto_por_mensagem(ambiente_da_lambda):
+    # Arrange
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    event = _sqs_event(
-        _record('msg-1', json.dumps({'event_id': 'a'})),
-        _record('msg-2', json.dumps({'event_id': 'b'})),
+    evento = _evento_sqs(
+        _registro('msg-1', json.dumps({'event_id': 'a'})),
+        _registro('msg-2', json.dumps({'event_id': 'b'})),
     )
 
-    result = ingest.handler(event, None)
+    # Act
+    resultado = ingest.handler(evento, None)
 
-    assert result == {'batchItemFailures': []}
-    keys = _bucket_keys()
-    assert len(keys) == 2
-    for key in keys:
-        assert re.match(r'^events/year=\d{4}/month=\d{2}/day=\d{2}/', key)
-    assert any('msg-1.json' in key for key in keys)
+    # Assert
+    assert resultado == {'batchItemFailures': []}
+    chaves = _chaves_do_bucket()
+    assert len(chaves) == 2
+    for chave in chaves:
+        assert re.match(r'^events/year=\d{4}/month=\d{2}/day=\d{2}/', chave)
+    assert any('msg-1.json' in chave for chave in chaves)
 
 
 @mock_aws
-def test_handler_reports_only_failed_messages(ingest_env):
+def test_handler_reporta_so_as_mensagens_com_falha(ambiente_da_lambda):
+    # Arrange
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    event = _sqs_event(
-        _record('ok-1', json.dumps({'event_id': 'a'})),
-        _record('ruim-1', 'nao-e-json{'),
+    evento = _evento_sqs(
+        _registro('ok-1', json.dumps({'event_id': 'a'})),
+        _registro('ruim-1', 'nao-e-json{'),
     )
 
-    result = ingest.handler(event, None)
+    # Act
+    resultado = ingest.handler(evento, None)
 
-    assert result == {'batchItemFailures': [{'itemIdentifier': 'ruim-1'}]}
-    assert len(_bucket_keys()) == 1
+    # Assert
+    assert resultado == {'batchItemFailures': [{'itemIdentifier': 'ruim-1'}]}
+    assert len(_chaves_do_bucket()) == 1
 
 
 @mock_aws
-def test_handler_is_idempotent_for_reprocessed_message(ingest_env):
+def test_handler_e_idempotente_para_mensagem_reprocessada(ambiente_da_lambda):
     boto3.client('s3').create_bucket(Bucket=BUCKET)
-    record = _record('repetida', json.dumps({'event_id': 'a'}))
+    registro = _registro('repetida', json.dumps({'event_id': 'a'}))
 
-    ingest.handler(_sqs_event(record), None)
-    ingest.handler(_sqs_event(record), None)
+    ingest.handler(_evento_sqs(registro), None)
+    ingest.handler(_evento_sqs(registro), None)
 
-    assert len(_bucket_keys()) == 1
+    assert len(_chaves_do_bucket()) == 1
 
 
 @mock_aws
-def test_handler_marks_all_failed_on_s3_error(ingest_env):
+def test_handler_marca_todas_com_falha_em_erro_s3(ambiente_da_lambda):
     # Bucket não existe: cada mensagem falha e volta para a fila (sem raise,
     # para não descartar o lote inteiro sem reporte granular).
-    event = _sqs_event(
-        _record('m1', json.dumps({'a': 1})),
-        _record('m2', json.dumps({'b': 2})),
+    evento = _evento_sqs(
+        _registro('m1', json.dumps({'a': 1})),
+        _registro('m2', json.dumps({'b': 2})),
     )
-    result = ingest.handler(event, None)
-    identifiers = {f['itemIdentifier'] for f in result['batchItemFailures']}
-    assert identifiers == {'m1', 'm2'}
+
+    resultado = ingest.handler(evento, None)
+
+    identificadores = {f['itemIdentifier'] for f in resultado['batchItemFailures']}
+    assert identificadores == {'m1', 'm2'}
 
 
-def test_raw_key_partitions_by_processing_date():
-    moment = datetime(2026, 7, 8, 15, 30, 0, tzinfo=timezone.utc)
-    key = ingest._raw_key('events', 'abc-123', moment)
-    assert key == 'events/year=2026/month=07/day=08/abc-123.json'
+def test_chave_raw_particiona_por_data_de_processamento():
+    momento = datetime(2026, 7, 8, 15, 30, 0, tzinfo=timezone.utc)
+
+    chave = ingest._chave_raw('events', 'abc-123', momento)
+
+    assert chave == 'events/year=2026/month=07/day=08/abc-123.json'

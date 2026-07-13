@@ -6,7 +6,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 
 from src.cold.api_orders.core.configs import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from src.cold.api_orders.core.deps import get_connection
+from src.cold.api_orders.core.deps import obter_conexao
 from src.cold.api_orders.schemas.order_schema import Order, OrdersPage, PageCursor
 
 router = APIRouter()
@@ -31,8 +31,8 @@ _ORDERS_SQL = """
 
 
 @router.get('', summary='Lista orders')
-async def list_orders(
-    conn: Annotated[psycopg.AsyncConnection, Depends(get_connection)],
+async def listar_orders(
+    conn: Annotated[psycopg.AsyncConnection, Depends(obter_conexao)],
     purchased_after: datetime = KEYSET_START,
     after_id: str = '',
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
@@ -56,6 +56,3 @@ async def list_orders(
             after_id=last.order_id,
         )
     return OrdersPage(items=items, next_cursor=next_cursor)
-
-
-

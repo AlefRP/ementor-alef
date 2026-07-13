@@ -8,36 +8,36 @@ from fastapi.testclient import TestClient
 from psycopg_pool import AsyncConnectionPool
 
 from src.cold.api_orders.core import database
-from src.cold.api_orders.core.configs import Settings, get_settings
+from src.cold.api_orders.core.configs import Settings, obter_configuracoes
 from src.cold.api_orders.core.database import (
     IamAuthPool,
-    create_pool,
-    iam_auth_token,
-    resolve_password,
+    criar_pool,
+    gerar_token_iam,
+    resolver_senha,
 )
-from src.cold.api_orders.core.deps import get_connection
-from src.cold.api_orders.main import create_app
+from src.cold.api_orders.core.deps import obter_conexao
+from src.cold.api_orders.main import criar_app
 
 
-class FakeCursor:
-    def __init__(self, rows):
-        self._rows = rows
+class CursorFalso:
+    def __init__(self, linhas):
+        self._linhas = linhas
 
     async def fetchall(self):
-        return self._rows
+        return self._linhas
 
 
-class FakeConnection:
-    def __init__(self, rows):
-        self.rows = rows
+class ConexaoFalsa:
+    def __init__(self, linhas):
+        self.linhas = linhas
         self.queries = []
 
     async def execute(self, sql, params=None):
         self.queries.append((sql, params))
-        return FakeCursor(self.rows)
+        return CursorFalso(self.linhas)
 
 
-def _order_row(order_id='o1', purchased=datetime(2018, 5, 1, 12, 0, 0)):
+def _linha_de_pedido(order_id='o1', purchased=datetime(2018, 5, 1, 12, 0, 0)):
     return {
         'order_id': order_id,
         'customer_id': 'c1',
@@ -53,67 +53,84 @@ def _order_row(order_id='o1', purchased=datetime(2018, 5, 1, 12, 0, 0)):
 @pytest.fixture()
 def api(monkeypatch):
     """Fábrica de app com conexão fake injetada por dependency override."""
-    get_settings.cache_clear()
+    obter_configuracoes.cache_clear()
 
-    def factory(rows=(), token=''):
+    def fabrica(linhas=(), token=''):
         if token:
             monkeypatch.setenv('API_TOKEN', token)
-            get_settings.cache_clear()
-        app = create_app()
-        conn = FakeConnection(list(rows))
+            obter_configuracoes.cache_clear()
+        app = criar_app()
+        conexao = ConexaoFalsa(list(linhas))
 
         async def override():
-            yield conn
+            yield conexao
 
-        app.dependency_overrides[get_connection] = override
-        return TestClient(app), conn
+        app.dependency_overrides[obter_conexao] = override
+        return TestClient(app), conexao
 
-    yield factory
-    get_settings.cache_clear()
+    yield fabrica
+    obter_configuracoes.cache_clear()
 
 
-def test_health_returns_ok(api):
+def test_health_retorna_ok(api):
+    # Arrange
     client, _ = api()
-    response = client.get('/health')
-    assert response.status_code == 200
-    assert response.json() == {'status': 'ok'}
+
+    # Act
+    resposta = client.get('/health')
+
+    # Assert
+    assert resposta.status_code == 200
+    assert resposta.json() == {'status': 'ok'}
 
 
-def test_response_includes_correlation_id_header(api):
+def test_resposta_inclui_header_de_correlation_id(api):
     client, _ = api()
-    response = client.get('/health')
-    assert response.headers['x-correlation-id']
+
+    resposta = client.get('/health')
+
+    assert resposta.headers['x-correlation-id']
 
 
-def test_incoming_correlation_id_is_preserved(api):
+def test_correlation_id_recebido_e_preservado(api):
     client, _ = api()
-    response = client.get('/health', headers={'x-correlation-id': 'abc-123'})
-    assert response.headers['x-correlation-id'] == 'abc-123'
+
+    resposta = client.get('/health', headers={'x-correlation-id': 'abc-123'})
+
+    assert resposta.headers['x-correlation-id'] == 'abc-123'
 
 
-def test_list_orders_without_cursor_on_partial_page(api):
-    client, _ = api(rows=[_order_row()])
-    response = client.get('/v1/orders')
-    payload = response.json()
-    assert response.status_code == 200
+def test_listar_orders_sem_cursor_em_pagina_parcial(api):
+    client, _ = api(linhas=[_linha_de_pedido()])
+
+    resposta = client.get('/v1/orders')
+
+    payload = resposta.json()
+    assert resposta.status_code == 200
     assert len(payload['items']) == 1
     assert payload['next_cursor'] is None
 
 
-def test_list_orders_returns_next_cursor_on_full_page(api):
-    rows = [
-        _order_row('o1', datetime(2018, 5, 1, 10, 0, 0)),
-        _order_row('o2', datetime(2018, 5, 2, 10, 0, 0)),
+def test_listar_orders_retorna_next_cursor_em_pagina_cheia(api):
+    # Arrange — página cheia (itens == page_size) tem próxima página
+    linhas = [
+        _linha_de_pedido('o1', datetime(2018, 5, 1, 10, 0, 0)),
+        _linha_de_pedido('o2', datetime(2018, 5, 2, 10, 0, 0)),
     ]
-    client, _ = api(rows=rows)
-    response = client.get('/v1/orders', params={'page_size': 2})
-    cursor = response.json()['next_cursor']
+    client, _ = api(linhas=linhas)
+
+    # Act
+    resposta = client.get('/v1/orders', params={'page_size': 2})
+
+    # Assert — cursor aponta para o último item da página
+    cursor = resposta.json()['next_cursor']
     assert cursor['after_id'] == 'o2'
     assert cursor['purchased_after'] == '2018-05-02T10:00:00'
 
 
-def test_list_orders_sends_keyset_params_to_query(api):
-    client, conn = api()
+def test_listar_orders_envia_params_keyset_na_query(api):
+    client, conexao = api()
+
     client.get(
         '/v1/orders',
         params={
@@ -122,37 +139,46 @@ def test_list_orders_sends_keyset_params_to_query(api):
             'page_size': 10,
         },
     )
-    _, params = conn.queries[0]
+
+    _, params = conexao.queries[0]
     assert params['purchased_after'] == datetime(2018, 1, 1)
     assert params['after_id'] == 'o9'
     assert params['page_size'] == 10
 
 
-def test_list_orders_rejects_page_size_above_max(api):
+def test_listar_orders_rejeita_page_size_acima_do_max(api):
     client, _ = api()
-    response = client.get('/v1/orders', params={'page_size': 1001})
-    assert response.status_code == 422
+
+    resposta = client.get('/v1/orders', params={'page_size': 1001})
+
+    assert resposta.status_code == 422
 
 
-def test_list_orders_rejects_invalid_purchased_after(api):
+def test_listar_orders_rejeita_purchased_after_invalido(api):
     client, _ = api()
-    response = client.get('/v1/orders', params={'purchased_after': 'ontem'})
-    assert response.status_code == 422
+
+    resposta = client.get('/v1/orders', params={'purchased_after': 'ontem'})
+
+    assert resposta.status_code == 422
 
 
-def test_v1_requires_token_when_configured(api):
+def test_v1_exige_token_quando_configurado(api):
+    # Arrange — API_TOKEN definido liga a exigência do header
     client, _ = api(token='s3gr3d0')
+
+    # Act / Assert — sem token 401; com token correto 200
     assert client.get('/v1/orders').status_code == 401
     ok = client.get('/v1/orders', headers={'x-api-token': 's3gr3d0'})
     assert ok.status_code == 200
 
 
-def test_health_does_not_require_token(api):
+def test_health_nao_exige_token(api):
     client, _ = api(token='s3gr3d0')
+
     assert client.get('/health').status_code == 200
 
 
-def test_unhandled_error_returns_500_with_correlation_id(api):
+def test_erro_nao_tratado_retorna_500_com_correlation_id(api):
     client, _ = api()
     app = client.app
 
@@ -160,75 +186,98 @@ def test_unhandled_error_returns_500_with_correlation_id(api):
         raise RuntimeError('boom')
         yield  # pragma: no cover
 
-    app.dependency_overrides[get_connection] = explode
-    response = client.get('/v1/orders')
-    assert response.status_code == 500
-    assert response.json()['correlation_id']
+    app.dependency_overrides[obter_conexao] = explode
+    resposta = client.get('/v1/orders')
+
+    assert resposta.status_code == 500
+    assert resposta.json()['correlation_id']
 
 
-def test_lifespan_opens_and_closes_pool(api, monkeypatch):
+def test_ciclo_de_vida_abre_e_fecha_o_pool(api, monkeypatch):
     monkeypatch.setenv('POOL_MIN_SIZE', '0')
     monkeypatch.setenv('PGPASSWORD', 'x')
-    get_settings.cache_clear()
-    app = create_app()
+    obter_configuracoes.cache_clear()
+    app = criar_app()
+
     with TestClient(app) as client:
         assert client.get('/health').status_code == 200
         assert app.state.pool is not None
 
 
-def test_resolve_password_prefers_environment():
+def test_resolver_senha_prefere_ambiente():
     settings = Settings(PGPASSWORD='direta', SECRET_ARN='arn:ignorado')
-    assert resolve_password(settings) == 'direta'
+
+    assert resolver_senha(settings) == 'direta'
 
 
-def test_resolve_password_reads_secrets_manager():
+def test_resolver_senha_le_do_secrets_manager():
+    # Arrange — sem senha no ambiente, com SECRET_ARN configurado
     settings = Settings(PGPASSWORD='', SECRET_ARN='arn:aws:sm:secret')
     fake = mock.Mock()
     fake.get_secret_value.return_value = {'SecretString': '{"password": "do-secret"}'}
+
+    # Act
     with mock.patch('boto3.client', return_value=fake):
-        assert resolve_password(settings) == 'do-secret'
+        senha = resolver_senha(settings)
+
+    # Assert
+    assert senha == 'do-secret'
     fake.get_secret_value.assert_called_once_with(SecretId='arn:aws:sm:secret')
 
 
-def test_resolve_password_empty_without_sources():
+def test_resolver_senha_vazia_sem_fontes():
     settings = Settings(PGPASSWORD='', SECRET_ARN='')
-    assert resolve_password(settings) == ''
+
+    assert resolver_senha(settings) == ''
 
 
-def test_create_pool_is_closed_and_sized_from_settings():
+def test_criar_pool_nasce_fechado_e_dimensionado():
     settings = Settings(PGPASSWORD='x', POOL_MIN_SIZE=0, POOL_MAX_SIZE=3)
-    pool = create_pool(settings)
+
+    pool = criar_pool(settings)
+
     assert pool.min_size == 0
     assert pool.max_size == 3
     assert pool.closed
 
 
-def test_iam_auth_token_signs_locally():
+def test_gerar_token_iam_assina_localmente():
     settings = Settings(PGHOST='db.interno', PGPORT=5432, PGUSER='api_reader')
     fake = mock.Mock()
     fake.generate_db_auth_token.return_value = 'token-iam'
+
     with mock.patch('boto3.client', return_value=fake):
-        assert iam_auth_token(settings) == 'token-iam'
+        token = gerar_token_iam(settings)
+
+    assert token == 'token-iam'
     fake.generate_db_auth_token.assert_called_once_with(
         DBHostname='db.interno', Port=5432, DBUsername='api_reader'
     )
 
 
-def test_create_pool_iam_mode_uses_tls_and_iam_pool():
+def test_criar_pool_modo_iam_usa_tls_e_pool_iam():
     settings = Settings(DB_AUTH='iam', POOL_MIN_SIZE=0)
-    pool = create_pool(settings)
+
+    pool = criar_pool(settings)
+
     assert isinstance(pool, IamAuthPool)
     assert 'sslmode=require' in pool.conninfo
 
 
-def test_iam_pool_refreshes_token_on_each_connection(monkeypatch):
+def test_pool_iam_renova_token_a_cada_conexao(monkeypatch):
+    # Arrange — pool IAM com o token e o _connect da base trocados por dublês
     settings = Settings(DB_AUTH='iam', POOL_MIN_SIZE=0)
-    pool = create_pool(settings)
-    monkeypatch.setattr(database, 'iam_auth_token', lambda _: 'tok-novo')
+    pool = criar_pool(settings)
+    monkeypatch.setattr(database, 'gerar_token_iam', lambda _: 'tok-novo')
 
-    async def fake_connect(self, timeout=None):
+    async def connect_falso(self, timeout=None):
         return 'conexao'
 
-    monkeypatch.setattr(AsyncConnectionPool, '_connect', fake_connect)
-    assert asyncio.run(pool._connect()) == 'conexao'
+    monkeypatch.setattr(AsyncConnectionPool, '_connect', connect_falso)
+
+    # Act
+    resultado = asyncio.run(pool._connect())
+
+    # Assert — o token novo entrou como senha da conexão
+    assert resultado == 'conexao'
     assert pool.kwargs['password'] == 'tok-novo'
