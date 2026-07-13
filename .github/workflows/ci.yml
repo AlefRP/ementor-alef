@@ -170,6 +170,15 @@ jobs:
           pip install "checkov>=3.2,<4"
           make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform/results_sarif.sarif'
 
+      # O checkov põe no SARIF também os achados já cobertos por #checkov:skip,
+      # e o GitHub abre um alerta de code scanning para cada um — o PR fica com
+      # dezenas de "Checkov / <regra>" mesmo com o gate acima verde. Sobe só o
+      # que ainda não tem decisão registrada no HCL (o gate segue reprovando
+      # qualquer achado não suprimido; o filtro não afeta o exit code).
+      - name: Remover achados suprimidos do SARIF
+        if: always()
+        run: python scripts/ci/filter_sarif.py infra/terraform/results_sarif.sarif
+
       - name: Upload Checkov SARIF
         if: always()
         continue-on-error: true
