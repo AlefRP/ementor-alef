@@ -44,11 +44,23 @@ lint: check-format
 	python -m compileall src simulation tests
 
 # ---- Segurança ----
-# Ignora CVEs do black 22.1.0 (ReDoS): pin transitivo do blue 0.9.1, sem fix
-# disponível sem trocar de formatador; dev-only, só formata código do repo.
+# CVEs ignorados no pip-audit — todos do black, que o blue 0.9.1 fixa como
+# `black==22.1.0`: nenhum tem upgrade possível sem trocar de formatador. O
+# black aqui é dev-only e roda só sobre o código do repo, com flags fixas
+# (`blue src simulation tests`), o que põe os três fora do nosso alcance:
+#   PYSEC-2024-48 (CVE-2024-21503) — ReDoS ao formatar docstring hostil.
+#   PYSEC-2026-2120 (CVE-2026-31900) — RCE na GitHub Action do black com
+#     `use_pyproject: true`; a esteira não usa essa action.
+#   PYSEC-2026-2121 (CVE-2026-32274) — path traversal na escrita do cache
+#     quando `--python-cell-magics` vem do atacante; nunca passamos essa flag.
+# Listados por ID PYSEC (o que o pip-audit reporta); os GHSA são os aliases.
+PIP_AUDIT_IGNORE := PYSEC-2024-48 \
+                    PYSEC-2026-2120 GHSA-v53h-f6m7-xcgm \
+                    PYSEC-2026-2121 GHSA-3936-cmfr-pm3m
+
 # bandit só lê [tool.bandit] do pyproject com -c explícito.
 security:
-	pip-audit --skip-editable --ignore-vuln PYSEC-2024-48 --ignore-vuln GHSA-3936-cmfr-pm3m
+	pip-audit --skip-editable $(addprefix --ignore-vuln ,$(PIP_AUDIT_IGNORE))
 	bandit -c pyproject.toml -r src simulation -f json
 
 security-deps:
