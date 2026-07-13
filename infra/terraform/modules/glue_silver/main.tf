@@ -24,6 +24,132 @@ locals {
   }
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# KEY POLICY da chave KMS — não é uma policy de identidade.
+# Ela é anexada à PRÓPRIA chave, então `resources = ["*"]` significa "esta
+# chave" (não existe outro recurso para apontar, e a AWS exige o "*" aqui). O
+# escopo real vem dos principals: root da conta administra, a role do Glue usa
+# em runtime e os serviços operacionais (EventBridge/Logs/SNS) cifram/decifram.
+# Os três checks abaixo assumem policy de identidade e dão falso positivo.
+data "aws_iam_policy_document" "glue_security_kms" {
+  #checkov:skip=CKV_AWS_109: key policy - o "*" e a propria chave; o escopo vem dos principals
+  #checkov:skip=CKV_AWS_111: key policy - idem; kms:PutKeyPolicy so para o root da conta
+  #checkov:skip=CKV_AWS_356: key policy - a AWS exige Resource "*" numa policy anexada a chave
+  statement {
+    sid = "EnableAccountKeyAdministration"
+    actions = [
+      "kms:CancelKeyDeletion",
+      "kms:CreateAlias",
+      "kms:CreateGrant",
+      "kms:DeleteAlias",
+      "kms:DescribeKey",
+      "kms:DisableKey",
+      "kms:DisableKeyRotation",
+      "kms:EnableKey",
+      "kms:EnableKeyRotation",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:ListGrants",
+      "kms:ListKeyPolicies",
+      "kms:PutKeyPolicy",
+      "kms:RevokeGrant",
+      "kms:ScheduleKeyDeletion",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:UpdateAlias",
+      "kms:UpdateKeyDescription",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid = "AllowGlueJobRuntime"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:Encrypt",
+      "kms:GenerateDataKey",
+      "kms:GenerateDataKeyPair",
+      "kms:GenerateDataKeyPairWithoutPlaintext",
+      "kms:GenerateDataKeyWithoutPlaintext",
+      "kms:ReEncryptFrom",
+      "kms:ReEncryptTo",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = [var.role_arn]
+    }
+  }
+
+  statement {
+    sid = "AllowOperationalServices"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:Encrypt",
+      "kms:GenerateDataKey",
+      "kms:GenerateDataKeyPair",
+      "kms:GenerateDataKeyPairWithoutPlaintext",
+      "kms:GenerateDataKeyWithoutPlaintext",
+      "kms:ReEncryptFrom",
+      "kms:ReEncryptTo",
+    ]
+    resources = ["*"]
+
+    principals {
+      type = "Service"
+      identifiers = [
+        "events.amazonaws.com",
+        "logs.${data.aws_region.current.name}.amazonaws.com",
+        "sns.amazonaws.com",
+      ]
+    }
+  }
+}
+
+resource "aws_kms_key" "glue_security" {
+  description             = "Criptografia dos jobs Glue silver e alertas SNS"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.glue_security_kms.json
+
+  tags = merge(var.tags, { Component = "glue-silver-security" })
+}
+
+resource "aws_kms_alias" "glue_security" {
+  name          = "alias/${var.prefix}-glue-silver-security"
+  target_key_id = aws_kms_key.glue_security.key_id
+}
+
+resource "aws_glue_security_configuration" "silver" {
+  name = "${var.prefix}-silver-security"
+
+  encryption_configuration {
+    cloudwatch_encryption {
+      cloudwatch_encryption_mode = "SSE-KMS"
+      kms_key_arn                = aws_kms_key.glue_security.arn
+    }
+
+    job_bookmarks_encryption {
+      job_bookmarks_encryption_mode = "CSE-KMS"
+      kms_key_arn                   = aws_kms_key.glue_security.arn
+    }
+
+    s3_encryption {
+      s3_encryption_mode = "SSE-KMS"
+      kms_key_arn        = aws_kms_key.glue_security.arn
+    }
+  }
+}
 data "archive_file" "runtime" {
   type        = "zip"
   source_dir  = var.runtime_source_dir
@@ -94,14 +220,14 @@ resource "aws_s3_object" "runtime" {
 }
 
 resource "aws_glue_job" "cold_datavault" {
-  #checkov:skip=CKV_AWS_195: script no bucket privado/versionado; jobs sem segredo em SecurityConfiguration dedicada no lab
-  name              = "${var.prefix}-silver-cold-datavault"
-  description       = "Batch: datasets Olist da raw fria -> Data Vault Iceberg na silver"
-  role_arn          = var.role_arn
-  glue_version      = var.glue_version
-  worker_type       = var.worker_type
-  number_of_workers = var.number_of_workers
-  timeout           = 60
+  name                   = "${var.prefix}-silver-cold-datavault"
+  description            = "Batch: datasets Olist da raw fria -> Data Vault Iceberg na silver"
+  role_arn               = var.role_arn
+  glue_version           = var.glue_version
+  worker_type            = var.worker_type
+  number_of_workers      = var.number_of_workers
+  security_configuration = aws_glue_security_configuration.silver.name
+  timeout                = 60
 
   execution_property {
     max_concurrent_runs = 1
@@ -121,14 +247,14 @@ resource "aws_glue_job" "cold_datavault" {
 }
 
 resource "aws_glue_job" "hot_datavault_microbatch" {
-  #checkov:skip=CKV_AWS_195: script no bucket privado/versionado; jobs sem segredo em SecurityConfiguration dedicada no lab
-  name              = "${var.prefix}-silver-hot-datavault"
-  description       = "Microbatch: eventos de pedido da raw quente -> Data Vault Iceberg na silver"
-  role_arn          = var.role_arn
-  glue_version      = var.glue_version
-  worker_type       = var.worker_type
-  number_of_workers = var.number_of_workers
-  timeout           = 30
+  name                   = "${var.prefix}-silver-hot-datavault"
+  description            = "Microbatch: eventos de pedido da raw quente -> Data Vault Iceberg na silver"
+  role_arn               = var.role_arn
+  glue_version           = var.glue_version
+  worker_type            = var.worker_type
+  number_of_workers      = var.number_of_workers
+  security_configuration = aws_glue_security_configuration.silver.name
+  timeout                = 30
 
   execution_property {
     max_concurrent_runs = 1
@@ -211,8 +337,8 @@ resource "aws_cloudwatch_event_target" "hot_job" {
 
 # ---- Alerta: job Glue FAILED/TIMEOUT -> SNS (agendado falhando nao pode ficar mudo) ----
 resource "aws_sns_topic" "job_failures" {
-  #checkov:skip=CKV_AWS_26: topico de alerta operacional sem dado sensivel; CMK dedicada fora do escopo do lab
-  name = "${var.prefix}-silver-glue-failures"
+  name              = "${var.prefix}-silver-glue-failures"
+  kms_master_key_id = aws_kms_key.glue_security.arn
 
   tags = var.tags
 }
