@@ -79,7 +79,7 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: adicionei `hot-producer-bundle` (rm/mkdir -p/cp) como prerequisite de `tf-apply`; o make no Windows executa a receita via `cmd.exe`, que não tem esses comandos. O repo é usado no Windows e no Ubuntu do CI.
 - Regra: receita de Makefile que manipula arquivos deve chamar um script Python (shutil/subprocess), nunca rm/mkdir/cp/tar. `api-bundle` ainda tem essa dívida.
 
-## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local
+## 2026-07-09 · tool · Formatar "no olho" quando o formatador não roda local [recorrente 2x — promovida ao CLAUDE.md]
 - Sintoma: `make check-format` quebrou no CI (`would reformat tests/taac/test_terraform_static.py`) depois que eu declarei o código formatado sem conseguir rodar o blue (crash no Python 3.14 local).
 - Causa raiz: assumi o estilo do black para `assert cond, msg` — ele envolve a CONDIÇÃO em parênteses, não a mensagem. Ausência de ferramenta virou suposição.
 - Regra: se o formatador não roda na versão local do Python, rode na versão do CI com `uv run --python 3.11 --with blue==0.9.1 --no-project blue --check src tests`. Nunca dizer "formatado" sem executar o gate.
@@ -138,6 +138,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: `make tf-plan` falhou no FIM (`"name" cannot be longer than 64 characters`) na regra EventBridge de `product_category_name_translation`; validate/tflint não pegam (a validação é do provider, só roda no plan com o valor real).
 - Causa raiz: nome = prefixo (26) + sufixo fixo (13) + dataset (33) = 73 chars; assumi que nome composto "cabe" sem somar.
 - Regra: nome derivado de lista/variável ganha `substr(..., 0, <limite>)` com comentário; o valor íntegro vai em campo sem limite apertado (input/tag). Conferir limites: EventBridge rule 64, IAM role 64, statement_id 100.
+
+## 2026-07-10 · processo · Docstrings dos jobs Glue entregues em inglês
+- Sintoma: usuário corrigiu — os arquivos novos do Glue silver saíram com docstrings/descriptions em inglês; o projeto inteiro deve ser PT-BR.
+- Causa raiz: "Docs e commits em PT-BR" do CLAUDE.md foi lido como README/commits apenas; docstrings, comentários e descriptions de Terraform ficaram fora.
+- Regra: TODO texto autoral em PT-BR — docstrings, comentários, descriptions de Terraform, READMEs de módulo. CLAUDE.md atualizado para explicitar.
 
 ## 2026-07-10 · ci · Precheck de apply só no alvo manual; a esteira aplicava sem ele
 - Sintoma: rollback.yml (mode=apply) num ambiente do zero morreu após ~11 min: `data.aws_s3_object.bundle` "couldn't find resource" — infra parcial.

@@ -6,11 +6,13 @@ Data lakehouse educacional na AWS: camada **fria** (FastAPI/EC2 → Lambda/Event
 
 **Fronteira que organiza o repo:** a arquitetura começa **no SQS** (quente) e **no RDS** (frio). Tudo que *alimenta* essas fronteiras é simulação e não se mistura com o lakehouse.
 
-- `src/cold|hot/` — **arquitetura**, código de produção (só aqui). `cold/api_orders` (RDS→serving), `cold/lambda_ingest` (API→raw), `hot/lambda_raw_ingest` (consome SQS→raw)
+- `src/cold|hot/` — **arquitetura**, código de produção. `cold/api_orders` (RDS→serving), `cold/lambda_ingest` (API→raw), `hot/lambda_raw_ingest` (consome SQS→raw), `cold/glue_silver` e `hot/glue_silver_microbatch` (entrypoints dos jobs raw→silver)
+- `src/glue_silver_runtime/` — runtime compartilhado dos jobs Glue silver (specs Data Vault + escrita Iceberg); vai no zip via `--extra-py-files`, por isso os imports são flat (`known_first_party` no pyproject)
 - `simulation/` — **fora da arquitetura**: Lambdas que alimentam o SQS (`event_producer`) e o RDS (`db_seeder`) + os geradores Faker. Vai no zip das Lambdas, então passa por blue/isort/bandit, mas **fica fora da cobertura e sem testes** (é simulação, não lógica de negócio)
 - `tests/unit|integration|taac/` — markers `integration` e `taac`
 - `infra/terraform/modules/` — mesma fronteira: `simulation/{event_producer,db_seeder}` separados dos módulos da arquitetura
 - `scripts/database/` — seed do Olist no RDS; `scripts/bundle/` — empacotamento das Lambdas/API
+- `docs/` — padrões do projeto: testes AAA (`padrao-de-testes.md`) e API (`padrao-de-api.md`)
 - `.claude/` — skills, agents, commands, hooks, lessons (ver `.claude/README.md`)
 
 ## Comandos
@@ -29,10 +31,12 @@ make tf-destroy FORCE=1                # teardown total (FORCE arma force_destro
 ## Convenções
 
 - Python ≥ 3.11; **blue** (88 col, aspas **simples**; duplas só em docstrings) + **isort** (profile black). Testes: `test_<unidade>_<cenario>`.
+- **Funções com nomes em PT-BR** (ex.: `montar_hub`, `datasets_selecionados`); nomes de tabelas/colunas seguem o dataset Olist e o padrão DV em inglês (`hub_customer`, `hashdiff`). Testes no padrão **AAA** com seções comentadas (`# Arrange` / `# Act` / `# Assert`).
+- **Nunca commite sem rodar os formatadores.** O Python local (3.14) quebra o blue; use `uv run --python 3.11 --with blue==0.9.1 --no-project blue src simulation tests` (idem isort) antes de todo commit.
 - Paths S3 sempre particionados `year/month/day`. Logging estruturado JSON, nunca `print`.
 - Sem credenciais/segredos no código — IAM roles + env vars. IAM sempre least-privilege (nunca `Action:"*"`).
 - Terraform: módulos em `modules/`, composição em `environments/`; **nunca rode `terraform apply`** (a esteira aplica no merge à master — plan no PR, apply automático; local só bootstrap/exceção).
-- Não comente/documente código que você não alterou. Docs e commits em PT-BR (`tipo(escopo): descricao`).
+- Não comente/documente código que você não alterou. **Todo texto autoral em PT-BR**: docs, docstrings, comentários, descriptions de Terraform e commits (`tipo(escopo): descricao`).
 
 ## Protocolo de aprendizado (obrigatório)
 
