@@ -148,3 +148,13 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: rollback.yml (mode=apply) num ambiente do zero morreu após ~11 min: `data.aws_s3_object.bundle` "couldn't find resource" — infra parcial.
 - Causa raiz: ensure_api_bundle.py ligado só no `make tf-apply`; o caminho da esteira (tf-plan-out → tf-apply-plan) não publica o bundle, e no bootstrap o gate é adiado para o apply (bucket unknown no plan).
 - Regra: invariante de pré-apply mora num alvo make único (tf-ensure-bundle) chamado por TODOS os caminhos que aplicam — manual e esteira (AUTO_APPROVE=1 OVERWRITE=1).
+
+## 2026-07-13 · tool · Here-string do PowerShell (`@'...'@`) usada na tool Bash
+- Sintoma: `git commit -m @'...'@` no Bash gravou a mensagem com um `@` solto na 1ª e na última linha; precisou de `--amend`.
+- Causa raiz: `@'...'@` é sintaxe PowerShell; o Bash só concatena os `@` literais à string. As duas tools coexistem e eu misturei as sintaxes.
+- Regra: mensagem multilinha na tool Bash vai por heredoc (`git commit -F - <<'EOF'`); `@'...'@` só na tool PowerShell.
+
+## 2026-07-13 · ci · CVE ignorado por alias GHSA mascarou um CVE distinto
+- Sintoma: `make security` quebrou com PYSEC-2026-2120 (black); ao reproduzir, o pip-audit acusou 3 CVEs — o PYSEC-2026-2121 já vinha silencioso, e o comentário do Makefile o descrevia como se fosse o ReDoS.
+- Causa raiz: o ignore list usava `GHSA-3936-cmfr-pm3m`, alias de OUTRA vuln; um CVE novo entrou na lista sem revisão porque o alias casou sozinho.
+- Regra: ignorar CVE pelo ID que o pip-audit reporta (PYSEC-*), um comentário por ID dizendo por que não nos atinge; antes de ignorar, ler a advisory no OSV (`api.osv.dev/v1/vulns/<ID>`) e reproduzir o gate (`uv run --with pip-audit --with <pkg>==<ver> --no-project pip-audit`).
