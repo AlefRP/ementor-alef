@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 import psycopg
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, status
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 
@@ -47,7 +47,6 @@ def _montar_sql_select(spec: DatasetSpec, with_cursor: bool) -> str:
 
 async def listar_linhas_da_tabela(
     *,
-    request: Request,
     spec: DatasetSpec,
     conn: psycopg.AsyncConnection,
     after: list[str] | None,

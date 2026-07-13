@@ -22,16 +22,17 @@ def anexar_metadados_da_raw(
     """Anexa a cada linha de onde ela veio: partição de origem (extraída do
     caminho do arquivo), momento da carga (load_dts) e fonte (record_source).
     """
-    return (
-        df.withColumn('raw_year', F.regexp_extract('raw_file', r'year=(\d{4})', 1))
-        .withColumn('raw_month', F.regexp_extract('raw_file', r'month=(\d{2})', 1))
-        .withColumn('raw_day', F.regexp_extract('raw_file', r'day=(\d{2})', 1))
-        .withColumn(
-            'raw_partition_date',
-            F.to_date(F.concat_ws('-', 'raw_year', 'raw_month', 'raw_day')),
-        )
-        .withColumn('load_dts', F.current_timestamp())
-        .withColumn('record_source', F.lit(f'{prefixo_record_source}.{nome_da_fonte}'))
+    return df.withColumns(
+        {
+            'raw_year': F.regexp_extract('raw_file', r'year=(\d{4})', 1),
+            'raw_month': F.regexp_extract('raw_file', r'month=(\d{2})', 1),
+            'raw_day': F.regexp_extract('raw_file', r'day=(\d{2})', 1),
+            'raw_partition_date': F.to_date(
+                F.concat_ws('-', 'raw_year', 'raw_month', 'raw_day')
+            ),
+            'load_dts': F.current_timestamp(),
+            'record_source': F.lit(f'{prefixo_record_source}.{nome_da_fonte}'),
+        }
     )
 
 

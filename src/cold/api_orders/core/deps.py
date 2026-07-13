@@ -17,7 +17,7 @@ async def obter_conexao(
         yield conn
 
 
-async def exigir_token(
+def exigir_token(
     x_api_token: Annotated[str | None, Header()] = None,
 ) -> None:
     """Valida o token estático quando configurado (defesa em profundidade)."""

@@ -66,7 +66,7 @@ def criar_app() -> FastAPI:
     app = FastAPI(title=settings.PROJECT_NAME, version='1.0.0', lifespan=ciclo_de_vida)
     _inicializar_cache(settings)
     app.include_router(
-        montar_roteador_v1(settings.CACHE_TTL_SECONDS),
+        montar_roteador_v1(),
         prefix=settings.API_V1_STR,
         dependencies=[Depends(exigir_token)],
     )

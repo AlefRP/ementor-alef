@@ -2,7 +2,7 @@
 from typing import Annotated
 
 import psycopg
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from src.cold.api_orders.api.v1.endpoints._tables import (
     DatasetSpec,
@@ -30,14 +30,12 @@ SPEC = DatasetSpec(
 )
 @cache_de_rota
 async def listar_order_reviews(
-    request: Request,
     conn: Annotated[psycopg.AsyncConnection, Depends(obter_conexao)],
     after: Annotated[list[str] | None, Query()] = None,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
 ) -> DatasetPage[OrderReview]:
     """Linhas de ``olist.order_reviews`` após o cursor ``after``."""
     return await listar_linhas_da_tabela(
-        request=request,
         spec=SPEC,
         conn=conn,
         after=after,
