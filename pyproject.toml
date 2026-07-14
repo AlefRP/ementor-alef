@@ -47,6 +47,11 @@ prod = [
   "safety==2.3.1",
   "detect-secrets==1.4.0",
   "pre-commit==3.7.1",
+  # O pip-audit audita o ambiente inteiro, inclusive o setuptools que o
+  # setup-python já traz (79.0.1, com PYSEC-2026-3447). Nada o declarava, então
+  # o `pip install -e .[prod]` o deixava intacto e o gate quebrava. Declarado
+  # aqui para a instalação subir a versão corrigida; o Dependabot cuida daqui.
+  "setuptools>=83", # PYSEC-2026-3447 (CVE-2026-59890) — corrigido em 83.0.0
   "aws-lakehouse-mentoria[test]", # sonar.yml instala [prod] e roda make test-cov
 ]
 # Ferramentas de IaC (scan de segurança do Terraform).
