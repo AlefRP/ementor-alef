@@ -173,3 +173,8 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: `make security` quebrou com PYSEC-2026-2120 (black); ao reproduzir, o pip-audit acusou 3 CVEs — o PYSEC-2026-2121 já vinha silencioso, e o comentário do Makefile o descrevia como se fosse o ReDoS.
 - Causa raiz: o ignore list usava `GHSA-3936-cmfr-pm3m`, alias de OUTRA vuln; um CVE novo entrou na lista sem revisão porque o alias casou sozinho.
 - Regra: ignorar CVE pelo ID que o pip-audit reporta (PYSEC-*), um comentário por ID dizendo por que não nos atinge; antes de ignorar, ler a advisory no OSV (`api.osv.dev/v1/vulns/<ID>`) e reproduzir o gate (`uv run --with pip-audit --with <pkg>==<ver> --no-project pip-audit`).
+
+## 2026-07-14 · ci · CVE em pacote do ambiente que ninguém declara
+- Sintoma: `make security` quebrou com PYSEC-2026-3447 no setuptools 79.0.1 — versão que o `pip install -e .[prod]` nunca instalou nem sobe.
+- Causa raiz: o pip-audit audita o ambiente INTEIRO, incluindo o que o `setup-python` já traz (setuptools/pip/wheel). Sem ninguém declarar o pacote, o pip não tem motivo para atualizá-lo e a versão do toolcache fica congelada, vulnerável.
+- Regra: CVE com fix disponível se corrige com upgrade, não com ignore (o ignore é só para o que não tem saída, como o black fixado pelo blue). Para pacote do ambiente, declare-o no extra que o job audita (`setuptools>=83` em `[prod]`) — assim o pip sobe a versão corrigida e o Dependabot mantém.
