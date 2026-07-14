@@ -53,6 +53,7 @@ data "aws_iam_policy_document" "glue_security_kms" {
       "kms:GetKeyRotationStatus",
       "kms:ListGrants",
       "kms:ListKeyPolicies",
+      "kms:ListResourceTags",
       "kms:PutKeyPolicy",
       "kms:RevokeGrant",
       "kms:ScheduleKeyDeletion",

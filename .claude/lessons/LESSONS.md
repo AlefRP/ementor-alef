@@ -164,6 +164,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a árvore tinha alteração NÃO-COMMITADA do usuário (KMS + security configuration no glue_silver), feita em paralelo durante a sessão; o `git status` do início da sessão dizia clean.
 - Regra: gate vermelho em arquivo que você não editou → `git status --short` + `git diff HEAD -- <arquivo>` ANTES de mexer. Se o código é do usuário, reporte e pergunte; nunca reverta nem "corrija" trabalho em andamento dele.
 
+## 2026-07-13 · terraform · Key policy da KMS sem `kms:ListResourceTags` trava plan/apply/destroy
+- Sintoma: `make tf-destroy FORCE=1` morreu no refresh — `AccessDeniedException: user/terraform is not authorized to perform kms:ListResourceTags ... no resource-based policy allows`.
+- Causa raiz: o read do `aws_kms_key` chama DescribeKey + GetKeyPolicy + GetKeyRotationStatus + **ListResourceTags**; a lista fechada de ações do statement do root não tinha a última, e o que a key policy não lista a policy de identidade não delega. Pior: o Terraform não conserta a si mesmo — o refresh da chave é justamente o que falha.
+- Regra: statement de administração de key policy inclui `kms:ListResourceTags` (não basta Tag/UntagResource). Chave já criada com o gap só se corrige fora do Terraform (`aws kms put-key-policy`) ou com `-refresh=false`.
+
 ## 2026-07-13 · ci · CVE ignorado por alias GHSA mascarou um CVE distinto
 - Sintoma: `make security` quebrou com PYSEC-2026-2120 (black); ao reproduzir, o pip-audit acusou 3 CVEs — o PYSEC-2026-2121 já vinha silencioso, e o comentário do Makefile o descrevia como se fosse o ReDoS.
 - Causa raiz: o ignore list usava `GHSA-3936-cmfr-pm3m`, alias de OUTRA vuln; um CVE novo entrou na lista sem revisão porque o alias casou sozinho.
