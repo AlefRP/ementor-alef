@@ -178,3 +178,13 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Sintoma: `make security` quebrou com PYSEC-2026-3447 no setuptools 79.0.1 — versão que o `pip install -e .[prod]` nunca instalou nem sobe.
 - Causa raiz: o pip-audit audita o ambiente INTEIRO, incluindo o que o `setup-python` já traz (setuptools/pip/wheel). Sem ninguém declarar o pacote, o pip não tem motivo para atualizá-lo e a versão do toolcache fica congelada, vulnerável.
 - Regra: CVE com fix disponível se corrige com upgrade, não com ignore (o ignore é só para o que não tem saída, como o black fixado pelo blue). Para pacote do ambiente, declare-o no extra que o job audita (`setuptools>=83` em `[prod]`) — assim o pip sobe a versão corrigida e o Dependabot mantém.
+
+## 2026-07-14 · aws · EventBridge Rule não dispara job Glue (só workflow)
+- Sintoma: `tf-apply` na master quebrou em `PutTargets` — "Parameter arn:aws:glue:...:job/... is not valid. Reason: Provided Arn is not in correct format" — com o ARN do job correto.
+- Causa raiz: a lista de targets nativos da EventBridge *Rule* tem Glue **workflow**, não Glue **job**; o erro de "formato" é a API dizendo que o TIPO de destino não existe, não que o ARN está malformado. `terraform validate`/`plan` não pegam isso (o ARN é uma string válida) — só o apply.
+- Regra: para agendar `glue:StartJobRun`, use `aws_scheduler_schedule` (EventBridge Scheduler) com o target universal `arn:aws:scheduler:::aws-sdk:glue:startJobRun` e `input = jsonencode({ JobName = ... })`; trust da execution role é `scheduler.amazonaws.com` (não `events.amazonaws.com`). Antes de apontar um target de Rule, confira se o serviço está na lista de targets suportados.
+
+## 2026-07-14 · tool · Here-string do PowerShell na tool Bash corrompeu o commit
+- Sintoma: `git commit -m @'...'@` pela tool Bash gerou a mensagem com assunto `@` e um `@` solto no fim; precisou de `--amend`.
+- Causa raiz: a tool Bash é Git Bash (POSIX sh), não PowerShell — `@'...'@` não é here-string ali, é texto literal. As duas tools coexistem e cada uma tem a sua sintaxe.
+- Regra: mensagem multi-linha na tool Bash vai por `git commit -F <arquivo>` (ou heredoc `<<'EOF'`); `@'...'@` só na tool PowerShell. Depois de commitar, conferir com `git log -1 --format=%B`.

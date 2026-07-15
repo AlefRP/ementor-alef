@@ -272,29 +272,13 @@ resource "aws_glue_job" "hot_datavault_microbatch" {
   tags = merge(var.tags, { Layer = "silver", Model = "datavault", Runtime = "iceberg" })
 }
 
-resource "aws_cloudwatch_event_rule" "cold_schedule" {
-  name                = "${var.prefix}-silver-cold-datavault"
-  description         = "Agenda do job Glue cold raw -> silver Data Vault"
-  schedule_expression = var.cold_schedule_expression
-
-  tags = var.tags
-}
-
-resource "aws_cloudwatch_event_rule" "hot_schedule" {
-  name                = "${var.prefix}-silver-hot-datavault"
-  description         = "Agenda do job Glue hot raw -> silver Data Vault"
-  schedule_expression = var.hot_schedule_expression
-
-  tags = var.tags
-}
-
 data "aws_iam_policy_document" "eventbridge_assume" {
   statement {
     actions = ["sts:AssumeRole"]
 
     principals {
       type        = "Service"
-      identifiers = ["events.amazonaws.com"]
+      identifiers = ["scheduler.amazonaws.com"]
     }
   }
 }
@@ -324,16 +308,65 @@ resource "aws_iam_role_policy" "eventbridge_start_glue" {
   policy = data.aws_iam_policy_document.eventbridge_start_glue.json
 }
 
-resource "aws_cloudwatch_event_target" "cold_job" {
-  rule     = aws_cloudwatch_event_rule.cold_schedule.name
-  arn      = aws_glue_job.cold_datavault.arn
-  role_arn = aws_iam_role.eventbridge_glue.arn
+# Uma EventBridge *Rule* não sabe disparar um job Glue: a lista de targets
+# nativos tem Glue *workflow*, não job — apontar o ARN do job faz o PutTargets
+# devolver "Provided Arn is not in correct format". Quem chama StartJobRun na
+# agenda é o EventBridge *Scheduler*, pelo target universal do SDK.
+#
+# Sem retry: os jobs rodam com max_concurrent_runs = 1, então uma nova tentativa
+# em cima de uma execução em andamento só produziria ConcurrentRunsExceeded. O
+# próximo tick da agenda é a recuperação natural.
+#
+# CKV_AWS_297 (CMK na agenda): a CMK só cifra o `input` do target, que aqui é o
+# nome do job — não há dado sensível a proteger, e o resto (agenda, ARN, estado)
+# a AWS cifra de qualquer forma com chave gerenciada. Em troca, a CMK exigiria
+# kms:GenerateDataKey/Decrypt/DescribeKey na identidade que CRIA a agenda (a role
+# do CI) e kms:Decrypt na execution role — o Scheduler não usa grants. Custo de
+# acoplamento alto para proteger uma string pública.
+resource "aws_scheduler_schedule" "cold_job" {
+  #checkov:skip=CKV_AWS_297: input do target e o nome do job; sem dado sensivel
+  name        = "${var.prefix}-silver-cold-datavault"
+  description = "Agenda do job Glue cold raw -> silver Data Vault"
+  group_name  = "default"
+
+  schedule_expression = var.cold_schedule_expression
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = "arn:aws:scheduler:::aws-sdk:glue:startJobRun"
+    role_arn = aws_iam_role.eventbridge_glue.arn
+    input    = jsonencode({ JobName = aws_glue_job.cold_datavault.name })
+
+    retry_policy {
+      maximum_retry_attempts = 0
+    }
+  }
 }
 
-resource "aws_cloudwatch_event_target" "hot_job" {
-  rule     = aws_cloudwatch_event_rule.hot_schedule.name
-  arn      = aws_glue_job.hot_datavault_microbatch.arn
-  role_arn = aws_iam_role.eventbridge_glue.arn
+resource "aws_scheduler_schedule" "hot_job" {
+  #checkov:skip=CKV_AWS_297: input do target e o nome do job; sem dado sensivel
+  name        = "${var.prefix}-silver-hot-datavault"
+  description = "Agenda do job Glue hot raw -> silver Data Vault"
+  group_name  = "default"
+
+  schedule_expression = var.hot_schedule_expression
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = "arn:aws:scheduler:::aws-sdk:glue:startJobRun"
+    role_arn = aws_iam_role.eventbridge_glue.arn
+    input    = jsonencode({ JobName = aws_glue_job.hot_datavault_microbatch.name })
+
+    retry_policy {
+      maximum_retry_attempts = 0
+    }
+  }
 }
 
 # ---- Alerta: job Glue FAILED/TIMEOUT -> SNS (agendado falhando nao pode ficar mudo) ----

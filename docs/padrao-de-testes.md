@@ -149,6 +149,38 @@ o comportamento; o **Teardown** (fechar o Spark) é automático.
 O que segue é o repertório de pytest que usamos no dia a dia. Cada recurso vem
 com a sintaxe e quando aplicá-lo.
 
+### Dublês de teste e monkeypatch
+
+Dublê de teste é qualquer objeto que substitui uma dependência real durante o
+teste. Usamos isso para evitar rede, AWS, banco, tempo real ou qualquer efeito
+externo que deixe o teste lento, caro ou instável.
+
+- **Fake**: implementação simplificada que funciona o suficiente para o teste
+  (`FakeResponse`, `FakeSpark`, `FakeConf`).
+- **Stub**: devolve uma resposta pronta para exercitar um cenário.
+- **Spy**: registra como foi chamado, para o teste verificar depois.
+- **Mock**: objeto configurado com expectativas de chamada.
+- **Monkeypatch**: técnica/ferramenta para trocar algo durante o teste, por
+  exemplo `httpx.get`, `time.sleep`, uma variável de ambiente ou um atributo.
+
+Exemplo didático:
+
+```python
+def test_fetch_data_deve_retornar_200(monkeypatch):
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda url: FakeResponse(url, 200, {"nome": "Olist"}),
+    )
+
+    resposta = fetch_data("https://exemplo.test/dados")
+
+    assert resposta == {"nome": "Olist"}
+```
+
+Aqui, `monkeypatch` troca `httpx.get` só durante o teste. A `FakeResponse` é o
+dublê que substitui a resposta real da rede.
+
 ### Fixtures — preparar (e limpar) sem repetição
 
 Fixture é a maneira do pytest de fornecer o recurso pronto ao teste e limpar
@@ -304,3 +336,23 @@ mede `--cov=src`, gera `term-missing` + `html` + `xml` e aplica o gate de 90 %
 - **Growing Object-Oriented Software, Guided by Tests** — Freeman & Pryce.
 - **xUnit Test Patterns** — Gerard Meszaros (origem das 4 fases e do termo SUT).
 - **Pytest Quick Start Guide** — Bruno Oliveira.
+
+## Referências online
+
+- **pytest: monkeypatch/mock modules and environments** —
+  https://docs.pytest.org/en/stable/how-to/monkeypatch.html
+- **pytest: fixtures** —
+  https://docs.pytest.org/en/stable/how-to/fixtures.html
+- **pytest: assertions** —
+  https://docs.pytest.org/en/stable/how-to/assert.html
+- **Python: unittest.mock** —
+  https://docs.python.org/3/library/unittest.mock.html
+- **Martin Fowler: Test Double** —
+  https://martinfowler.com/bliki/TestDouble.html
+- **Martin Fowler: Mocks Aren't Stubs** —
+  https://martinfowler.com/articles/mocksArentStubs.html
+- **xUnit Test Patterns** —
+  http://xunitpatterns.com/
+- **Obey the Testing Goat / Test-Driven Web Development with Python** —
+  https://www.obeythetestinggoat.com/pages/book.html
+
