@@ -316,6 +316,15 @@ jobs:
       - name: Terraform Apply
         run: make tf-apply-plan
 
+      # As views da gold leem as tabelas Data Vault da silver; num ambiente
+      # recém-aplicado elas ainda não existem (o job Glue silver é agendado por
+      # EventBridge, não roda no apply). Rodamos a silver aqui e esperamos o
+      # SUCCEEDED antes da gold — senão o CREATE OR REPLACE VIEW quebra em
+      # "Table ... does not exist". Requer glue:StartJobRun/GetJobRun/GetJobRuns
+      # na credencial da esteira.
+      - name: Rodar a camada silver (Glue) e aguardar
+        run: make silver-run
+
       # A camada gold é CÓDIGO, não state: o Terraform cria o database e o
       # workgroup, e o DDL das views (src/{cold,hot}/athena_gold/*.sql) é
       # aplicado aqui, depois que eles existem. CREATE OR REPLACE VIEW é

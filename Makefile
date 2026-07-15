@@ -16,7 +16,7 @@ ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
         api-bundle-upload event-producer-bundle db-seeder-bundle seed-db \
-        athena-gold athena-gold-dry-run athena-query \
+        silver-run athena-gold athena-gold-dry-run athena-query \
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
@@ -123,10 +123,21 @@ seed-db:
 	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw db_seeder_function_name) --cli-read-timeout 700 build/seed-response.json
 	python -c "import json;print(json.load(open('build/seed-response.json')))"
 
+# ---- Camada silver (Glue) ----
+# Dispara os jobs Glue da silver (cold/hot) e espera concluir. A esteira roda
+# este alvo ANTES do athena-gold: as views da gold leem as tabelas Data Vault da
+# silver, que só existem depois que o job roda (fora daqui ele é agendado por
+# EventBridge). Sem isto, o CREATE OR REPLACE VIEW quebra num ambiente recém
+# aplicado ("Table ... does not exist"). Reprocessar a silver é seguro
+# (merges insert-only por hash key / append por hashdiff).
+silver-run:
+	python scripts/glue/run_silver.py --tf-dir $(TF_DIR)
+
 # ---- Camada gold + consumer (Athena) ----
 # Aplica o DDL das views (src/{cold,hot}/athena_gold/*.sql) no database gold.
 # CREATE OR REPLACE VIEW: idempotente, roda quantas vezes quiser. A esteira
-# chama este alvo no merge à master, depois do apply.
+# chama este alvo no merge à master, depois do apply E do silver-run (a gold lê
+# as tabelas que a silver materializa).
 athena-gold:
 	python scripts/athena/apply_views.py --tf-dir $(TF_DIR)
 
