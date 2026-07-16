@@ -151,7 +151,17 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
 
+      # O download do binário vem de release do GitHub e um 5xx transitório
+      # derruba o job inteiro (a API de versão já vai autenticada por default
+      # no v6, então não é rate limit). Retry único, sem action de terceiros:
+      # a 1ª tentativa não falha o job; a 2ª só roda se a 1ª falhou.
       - name: Setup TFLint
+        id: setup-tflint
+        uses: terraform-linters/setup-tflint@v6
+        continue-on-error: true
+
+      - name: Setup TFLint (retry)
+        if: steps.setup-tflint.outcome == 'failure'
         uses: terraform-linters/setup-tflint@v6
 
       # fmt e checkov varrem a árvore inteira (modules/ + environments/ +
