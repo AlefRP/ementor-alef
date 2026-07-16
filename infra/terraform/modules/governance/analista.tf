@@ -18,6 +18,7 @@ locals {
 }
 
 resource "aws_iam_user" "analista" {
+  #checkov:skip=CKV_AWS_273: Identity Center exige AWS Organizations, fora do escopo da conta standalone do lab; o consumo humano e cercado por IAM de trilho + Lake Formation. SSO registrado como evolucao em infra/iam/terraform-user/README.md
   for_each = toset(var.analistas)
 
   name = "${var.prefix}-analista-${each.value}"
@@ -129,6 +130,7 @@ resource "aws_iam_policy" "analista" {
 }
 
 resource "aws_iam_user_policy_attachment" "analista" {
+  #checkov:skip=CKV_AWS_40: os grants do Lake Formation sao por USER (LF nao aceita IAM group como principal); um grupo para 2 analistas seria camada extra carregando uma unica policy. Revisar se a lista crescer
   for_each = aws_iam_user.analista
 
   user       = each.value.name

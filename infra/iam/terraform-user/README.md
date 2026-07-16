@@ -93,3 +93,7 @@ root executa) e destaque o admin de novo.
   residual via role prefixada com policy ampla.
 - **OIDC no GitHub Actions** — troca as access keys de longa duração da
   esteira por role federada; maior redução de superfície disponível.
+- **IAM Identity Center (SSO) para os analistas** — em organização real,
+  humanos entram por SSO (permission sets), não por IAM users; exige AWS
+  Organizations, fora do escopo da conta standalone do lab (skip documentado
+  do CKV_AWS_273 em `governance/analista.tf`).
