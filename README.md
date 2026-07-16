@@ -18,7 +18,25 @@ Este repositório contém a estrutura inicial para um projeto de lakehouse na AW
 
 ---
 
+## 📚 Documentação
+
+Este README é o ponto de entrada; o funcionamento do projeto está documentado em [`docs/`](docs/):
+
+| Documento | O que responde |
+| --- | --- |
+| [Arquitetura](docs/arquitetura.md) | Como o lakehouse funciona de ponta a ponta: fronteiras, camadas fria/quente passo a passo, silver Data Vault/Iceberg, gold e governança |
+| [Esteira CI/CD](docs/esteira.md) | Como o código chega em produção: gatilhos, jobs, workflows de CD/rollback/destroy, artefatos e secrets |
+| [Operação](docs/operacao.md) | Runbook: subir o ambiente do zero, dia a dia, diagnóstico, rollback e teardown |
+| [Padrão de testes](docs/padrao-de-testes.md) | Estrutura AAA, nomenclatura e exemplos executáveis em [`docs/exemplos/`](docs/exemplos/) |
+| [Padrão de API](docs/padrao-de-api.md) | O padrão FastAPI de referência e como as APIs do repo o aplicam |
+| [.claude/README.md](.claude/README.md) | Skills, agents, commands e lições que apoiam o desenvolvimento |
+
+---
+
 ## 🎯 Escopo da Arquitetura
+
+> O passo a passo de cada camada, a modelagem da silver e o mapa código ↔ infra
+> estão em [docs/arquitetura.md](docs/arquitetura.md).
 
 ### ❄️ Camada Fria (batch)
 
@@ -53,21 +71,11 @@ A gold **não copia dados**: são views do Athena sobre a silver (Iceberg/Data V
 
 ## 🚀 Esteira de Dados (CI/CD)
 
-Configurada com GitHub Actions e SonarCloud (gratuito para repositórios públicos), no padrão **merge-before-apply**: o `terraform plan` é revisado no PR e o merge na `master` dispara o apply automático do ambiente.
+Configurada com GitHub Actions e SonarCloud (gratuito para repositórios públicos), no padrão **merge-before-apply**: o `terraform plan` é revisado no PR e o merge na `master` dispara o apply automático do ambiente — que aplica **exatamente o plan salvo** no mesmo run. O merge verde também dispara o CD (`release.yml`); voltar atrás é sempre manual (workflows **Rollback** e **Destroy**).
 
-### ⚡ Gatilhos por evento
-
-| Evento | Quality & Testes | Checks Terraform | Plan | Apply | SonarCloud |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| PR → `main`/`master` | ✅ | ✅ | ✅ ¹ | ❌ | ✅ (Quality Gate bloqueia) |
-| `push` na `main`/`master` (merge) | ✅ | ✅ | ✅ (auditoria) | ✅ automático | ✅ (atualiza o baseline) |
-| Manual (`workflow_dispatch`) | ✅ | ✅ | ❌ | ❌ | ❌ |
-
-¹ Somente PRs do próprio repositório — PR de fork não recebe secrets (regra do GitHub), então o job de plan nem tenta autenticar.
-
-O apply executa **exatamente o plan salvo** no mesmo run (sem re-planejar entre plan e apply), e o precheck `make tf-ensure-bundle` publica o bundle da API do commit de merge antes do plan — inclusive no bootstrap do zero, quando o bucket de artefatos ainda não existe. O merge verde na `master` também dispara o CD (`release.yml`). Voltar atrás é sempre manual: workflows **Rollback** e **Destroy**.
-
-O SonarCloud aguarda o Quality Gate (`sonar.qualitygate.wait`): reprova se a cobertura ficar abaixo de **90%** (threshold configurado no Quality Gate do projeto no SonarCloud).
+> Gatilhos por evento, o fluxo dos jobs, os workflows de CD/rollback/destroy,
+> os artefatos publicados, os secrets necessários e a configuração do
+> SonarCloud estão em [docs/esteira.md](docs/esteira.md).
 
 ### ✅ Gates de qualidade
 
@@ -81,80 +89,52 @@ O SonarCloud aguarda o Quality Gate (`sonar.qualitygate.wait`): reprova se a cob
 | 🌍 Infraestrutura | `terraform fmt/validate` + `tflint` + `checkov` (árvore inteira) + plan |
 | 📈 Qualidade de código | SonarCloud (Quality Gate com cobertura ≥ 90%) |
 
-### 📂 Arquivos da esteira
-
-- `.github/workflows/ci.yml` — lint, segurança, testes (matrix Python 3.11/3.12/3.13), checks de Terraform, plan no PR e **apply automático no merge à master**
-- `.github/workflows/sonar.yml` — cobertura + scan SonarCloud (PR e master — a análise da master atualiza o baseline de "new code")
-- `.github/workflows/release.yml` — CD: calcula a versão semver por Conventional Commits, atualiza `pyproject.toml` + `CHANGELOG.md`, cria a tag `vX.Y.Z` e a GitHub Release com o bundle da API como asset
-- `.github/workflows/rollback.yml` — rollback manual (checkout de tag/SHA antigo; modo `plan` para simular ou `apply` para executar; republica o bundle do ref alvo e salva o plan como artefato de auditoria)
-- `.github/workflows/destroy.yml` — teardown manual do ambiente (confirmação digitada + opção `force` para esvaziar os buckets e apagar o histórico de queries do workgroup; preserva o bucket de state). O `force` roda um apply prévio (`make tf-force-arm`) que grava `force_destroy=true` no state dos buckets **e do workgroup do Athena**: o provider AWS lê esse atributo do state ao deletar o recurso, então passar `-var` direto no `terraform destroy` não teria efeito e o teardown falharia com `BucketNotEmpty` (buckets) ou `WorkGroup is not empty` (Athena)
-- `.github/dependabot.yml` — atualização automática de GitHub Actions, dependências pip e módulos Terraform
-- `.pre-commit-config.yaml` — hooks locais que espelham os gates (blue, isort, bandit, detect-secrets, terraform fmt)
-- `sonar-project.properties` — configuração do projeto no SonarCloud
-
-O CI publica artefatos por execução: relatórios de cobertura (XML + HTML), resultados JUnit por versão de Python, relatórios de segurança em SARIF (aba Security → Code scanning) e o `terraform plan` (trilha de auditoria).
-
-### 🔐 Secrets necessários no repositório GitHub
-
-| Configuração | Tipo | Usado em |
-| --- | --- | --- |
-| `SONAR_TOKEN` | Secret | sonar.yml |
-| `AWS_ACCESS_KEY_ID` | Secret | ci.yml (plan/apply) + rollback.yml + destroy.yml |
-| `AWS_SECRET_ACCESS_KEY` | Secret | ci.yml (plan/apply) + rollback.yml + destroy.yml |
-| `AWS_DEFAULT_REGION` | Variable (`us-east-1`) | ci.yml (plan/apply) + rollback.yml + destroy.yml |
-
-Configure em Settings → Secrets and variables → Actions (ou no environment `prod`, que permite exigir aprovação manual antes dos jobs de Terraform). Use as credenciais de um IAM user dedicado (ex.: `github-actions`) — nunca do root.
-
 ---
 
 ## 📁 Estrutura de Pastas
 
-Diretórios principais do repositório (itens "a criar" são os próximos passos da mentoria):
+Os diretórios principais e o papel de cada um — o mapa completo código ↔ infra
+está em [docs/arquitetura.md](docs/arquitetura.md#mapa-código--infra):
 
 ```text
 .
-|-- .claude/                        ← skills, agents, commands e lições (ver .claude/README.md)
-|-- .github/
-|   `-- workflows/                  ← ci, sonar, release (CD), rollback e destroy
-|-- infra/
-|   `-- terraform/
-|       |-- bootstrap/              ← bucket do state remoto (apply único, manual)
-|       |-- modules/                ← network, storage, database, messaging, governance,
-|       |                             api_ec2 (serve as DUAS APIs), lambda_ingest,
-|       |                             hot_ingestion, glue_silver, athena_gold,
-|       |                             observability, simulation/*
-|       `-- environments/
-|           `-- prod/               ← composição do ambiente de produção
-|-- scripts/
-|   |-- athena/                     ← aplica as views da gold e roda as queries do consumer
-|   |-- bundle/                     ← empacotamento das Lambdas e da API
-|   |-- database/                   ← seed do dataset Olist no RDS
-|   |-- deploy/                     ← precheck do bundle da API (gate do apply)
-|   |-- release/                    ← versionamento semver (CD)
-|   `-- teardown/                   ← esvaziamento de buckets versionados
-|-- simulation/                     ← fora da arquitetura: alimenta a Event API e o RDS (Faker)
-|   |-- db_seeder/                  ← Lambda de seed do RDS
-|   `-- event_producer/             ← Lambda que CHAMA a Event API (não publica no SQS)
-|-- src/
-|   |-- cold/                       ← camada fria
-|   |   |-- api_orders/             ← API FastAPI async (data product Olist)
-|   |   |-- lambda_ingest/          ← Lambda EventBridge → API → raw
-|   |   |-- glue_silver/            ← entrypoint do job Glue raw → silver (Iceberg/DV)
-|   |   `-- athena_gold/            ← DDL das views gold (dim_/fact_) em .sql
-|   |-- hot/                        ← camada quente
-|   |   |-- api_events/             ← Event API na EC2: valida o evento e publica no SQS
-|   |   |-- lambda_raw_ingest/      ← Lambda SQS → raw (batch item failures)
-|   |   |-- glue_silver_microbatch/ ← entrypoint do job Glue microbatch
-|   |   `-- athena_gold/            ← DDL das views gold de eventos
-|   |-- glue_silver_runtime/        ← runtime compartilhado dos jobs (specs DV + Iceberg)
-|   `-- consumer/                   ← queries analíticas sobre a gold (Athena)
-|-- tests/
-|   |-- unit/                       ← unitários (cold/, hot/, gold/, glue_silver/)
-|   |-- integration/                ← integração (marker `integration`)
-|   `-- taac/                       ← testes de arquitetura (estático + live)
-|-- Makefile                        ← fonte única dos comandos (local e esteira)
-|-- pyproject.toml
-`-- sonar-project.properties
+├── .claude/                        # skills, agents, commands e lições
+├── .github/workflows/              # ci, sonar, release (CD), rollback e destroy
+├── docs/                           # arquitetura, esteira, operação e padrões
+├── infra/terraform/
+│   ├── bootstrap/                  # bucket do state remoto (apply único, manual)
+│   ├── modules/                    # um módulo por componente; simulation/* separado
+│   └── environments/prod/          # composição do ambiente de produção
+├── scripts/
+│   ├── athena/                     # aplica as views da gold e roda as queries
+│   ├── bundle/                     # empacotamento das Lambdas e da API
+│   ├── database/                   # seed do dataset Olist no RDS
+│   ├── deploy/                     # precheck do bundle da API (gate do apply)
+│   ├── release/                    # versionamento semver (CD)
+│   └── teardown/                   # esvaziamento de buckets versionados
+├── simulation/                     # fora da arquitetura: alimenta a Event API e o RDS
+│   ├── db_seeder/                  # Lambda de seed do RDS
+│   └── event_producer/             # Lambda que chama a Event API (não publica no SQS)
+├── src/
+│   ├── cold/                       # camada fria
+│   │   ├── api_orders/             # API FastAPI async (data product Olist)
+│   │   ├── lambda_ingest/          # Lambda EventBridge → API → raw
+│   │   ├── glue_silver/            # job Glue raw → silver (Iceberg/DV)
+│   │   └── athena_gold/            # DDL das views gold (dim_/fact_)
+│   ├── hot/                        # camada quente
+│   │   ├── api_events/             # Event API: valida o evento e publica no SQS
+│   │   ├── lambda_raw_ingest/      # Lambda SQS → raw (batch item failures)
+│   │   ├── glue_silver_microbatch/ # job Glue microbatch
+│   │   └── athena_gold/            # DDL das views gold de eventos
+│   ├── glue_silver_runtime/        # runtime compartilhado (specs DV + escrita Iceberg)
+│   └── consumer/                   # queries analíticas sobre a gold (Athena)
+├── tests/
+│   ├── unit/                       # unitários
+│   ├── integration/                # integração (marker `integration`)
+│   └── taac/                       # testes de arquitetura (estático + live)
+├── Makefile                        # fonte única dos comandos (local e esteira)
+├── pyproject.toml
+└── sonar-project.properties
 ```
 
 ---
@@ -174,6 +154,10 @@ make install-hooks
 # 4. Rodar o gate local completo antes de qualquer commit
 make quality        # check-format + lint + security + test
 ```
+
+> Para subir o ambiente na AWS do zero (bootstrap → apply → seed → silver →
+> gold), o dia a dia e o teardown, siga o runbook em
+> [docs/operacao.md](docs/operacao.md).
 
 ---
 
@@ -227,19 +211,6 @@ make quality        # check-format + lint + security + test
 
 ---
 
-## 📈 Configuração do SonarCloud
-
-O projeto usa o **SonarCloud** (gratuito para repositórios públicos):
-
-1. Acesse [sonarcloud.io](https://sonarcloud.io) e conecte com a sua conta GitHub.
-2. Importe o repositório e copie o `projectKey` e a `organization`.
-3. Atualize o `sonar-project.properties` com os valores corretos.
-4. Adicione o secret `SONAR_TOKEN` nas configurações do repositório GitHub.
-
-> `SONAR_HOST_URL` não é necessário — o workflow já aponta para `https://sonarcloud.io`.
-
----
-
 ## 📚 Referências
 
 - [Terraform — Provider AWS](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
@@ -260,3 +231,10 @@ O projeto usa o **SonarCloud** (gratuito para repositórios públicos):
 - [Curso Docker](https://www.udemy.com/course/docker-essencial-para-o-desenvolvedor/?referralCode=4180ED98E508AEAAE5FF)
 - [ShadowTraffic](https://shadowtraffic.io/)
 - [Curso de Claude Code — recomendado](https://www.youtube.com/watch?v=MzMM5iV3GcU)
+
+---
+
+## 📄 Licença
+
+Este projeto é licenciado sob a licença **MIT** — o texto completo está no
+arquivo [`LICENSE`](LICENSE).
