@@ -194,6 +194,21 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a tool Bash é Git Bash (POSIX sh), não PowerShell — `@'...'@` não é here-string ali, é texto literal. As duas tools coexistem e cada uma tem a sua sintaxe.
 - Regra: mensagem multi-linha na tool Bash vai por `git commit -F <arquivo>` (ou heredoc `<<'EOF'`); `@'...'@` só na tool PowerShell. Depois de commitar, conferir com `git log -1 --format=%B`.
 
+## 2026-07-16 · terraform · EC2 boota antes da própria IAM policy em apply do zero
+- Sintoma: Event API nunca subiu (Connection refused no producer); user_data falhou 12x com 403 no bundle e AccessDenied no ship do log — "no identity-based policy allows". CloudTrail: instância às 11:55:54, policy da role só às 12:02:05.
+- Causa raiz: a EC2 referencia só o NOME do instance profile (string imediata); a policy da role espera o RDS (~7 min, rds_resource_id no rds-db:connect). O grafo não tem aresta instância→policy, e user_data roda 1x — a corrida é fatal e silenciosa (o ShipBootLog estava na mesma policy ausente). A api-cold só sobreviveu porque TAMBÉM espera o RDS.
+- Regra: recurso cujo bootstrap USA permissões (user_data, init container) ganha aresta explícita para a policy — `depends_on` no OUTPUT que entrega o profile/role (cirúrgico; module depends_on difere data sources à toa). Conferir no CloudTrail (PutRolePolicy vs LaunchTime) quando IAM "que existe" foi negada no passado.
+
+## 2026-07-16 · python · spark.conf.set de config ESTÁTICA quebra só em runtime (dublê mascara)
+- Sintoma: jobs Glue silver morreram em `configurar_iceberg` — `AnalysisException: Cannot modify the value of a static config: spark.sql.extensions`; os 42 testes unitários passavam.
+- Causa raiz: `spark.sql.extensions` é config estática — só vale na CRIAÇÃO da sessão; `spark.conf.set` numa sessão ativa lança em qualquer Spark. O teste usava `FakeSpark`, que aceita qualquer set, e a sessão local dos testes nunca chamava a função de verdade.
+- Regra: função que configura Spark separa estática (extensions, warehouse.dir — via `--conf` do job/builder) de dinâmica (`spark.sql.catalog.*` — pode em runtime); dublê de `spark.conf` não valida semântica — para config, ou testa contra sessão real ou confia no `--conf` do Terraform como fonte única.
+
+## 2026-07-16 · aws · Security configuration SSE-KMS exige logs:AssociateKmsKey na role do Glue
+- Sintoma: os 2 jobs Glue silver falharam no bootstrap em prod — `Failed to AssociateKmsKey for logGroup ... not authorized to perform: logs:AssociateKmsKey`; silver ficou vazia com a raw ok.
+- Causa raiz: security configuration com `cloudwatch_encryption_mode = "SSE-KMS"` faz o runner chamar `logs:AssociateKmsKey` ao criar o log group; a managed `AWSGlueServiceRole` para em Create*/PutLogEvents. Nenhum gate estático pega — a exigência só aparece quando o job RODA.
+- Regra: ligou cifra KMS nos logs de um serviço (Glue, mas vale geral), a role de execução ganha `logs:AssociateKmsKey` escopado a `log-group:/aws-glue/*` E a key policy permite `logs.<region>.amazonaws.com` — as DUAS pontas, no mesmo PR da security configuration.
+
 ## 2026-07-15 · processo · Renomear "funções em PT-BR" virou exagero (main → principal)
 - Sintoma: pedido de "funções em PT-BR" me levou a traduzir `main`→`principal` em ~12 arquivos e a reescrever tooling 100% inglês (release.py, ensure_api_bundle.py); o usuário corrigiu: "main pode ser main, sem exagero".
 - Causa raiz: tratei "PT-BR" como tradução literal de TODO identificador, ignorando que `main`/`handler` são idiomas de entrypoint e que plumbing de CI/release não é domínio do lakehouse.
