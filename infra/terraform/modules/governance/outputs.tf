@@ -18,7 +18,18 @@ output "glue_job_role_arn" {
   value       = aws_iam_role.glue_job.arn
 }
 
+# O depends_on cria a aresta que o grafo não tem sozinho: a EC2 só referencia o
+# NOME do profile (string imediata), mas a policy da role espera o RDS (~7 min,
+# rds_resource_id no statement do rds-db:connect). Sem isso, num apply do zero a
+# instância boota minutos antes da permissão existir, o user_data (roda 1x)
+# falha no download do bundle e a API nasce morta e muda — nem o log de boot
+# sobe, porque o ShipBootLog está na mesma policy ausente.
 output "ec2_api_instance_profile_name" {
-  description = "Instance profile das EC2 das APIs."
+  description = "Instance profile das EC2 das APIs (pronto só após as policies)."
   value       = aws_iam_instance_profile.ec2_api.name
+
+  depends_on = [
+    aws_iam_role_policy.ec2_api,
+    aws_iam_role_policy_attachment.ec2_api_ssm,
+  ]
 }
