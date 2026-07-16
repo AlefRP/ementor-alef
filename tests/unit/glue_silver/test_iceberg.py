@@ -39,6 +39,52 @@ class FakeSpark:
         self.conf = FakeConf()
 
 
+class SessaoFalsa:
+    """Dublê da sessão: registra os SQLs e devolve a 'tabela atual' fixa."""
+
+    def __init__(self, tabela_atual=None):
+        self.sqls = []
+        self._tabela_atual = tabela_atual
+
+    def sql(self, texto):
+        self.sqls.append(texto)
+
+    def table(self, _nome):
+        return self._tabela_atual
+
+
+class EscritaFalsa:
+    """Dublê do writeTo(...): conta os appends."""
+
+    def __init__(self):
+        self.appends = 0
+
+    def append(self):
+        self.appends += 1
+
+
+class DataFrameFalso:
+    """Dublê de DataFrame para as estratégias de merge (sem Spark real)."""
+
+    def __init__(self, sessao, linhas=1):
+        self.sparkSession = sessao
+        self._linhas = linhas
+        self.escrita = EscritaFalsa()
+        self.view = None
+
+    def dropDuplicates(self, _chaves):
+        return self
+
+    def count(self):
+        return self._linhas
+
+    def createOrReplaceTempView(self, nome):
+        self.view = nome
+
+    def writeTo(self, _nome):
+        return self.escrita
+
+
 def _df_de_satellite(spark, linhas):
     """Monta um DataFrame com as colunas mínimas de um satellite."""
     return spark.createDataFrame(
@@ -125,6 +171,73 @@ def test_novas_linhas_de_satellite_insere_chave_inedita(spark):
 
     # Assert
     assert novas.count() == 1
+
+
+def _ultimo_log(caplog) -> dict:
+    """Decodifica o último registro JSON emitido pelo logger do runtime."""
+    return json.loads(caplog.records[-1].message)
+
+
+def test_merge_somente_insere_executa_merge_e_loga_linhas(monkeypatch, caplog):
+    # Arrange — hubs/links: MERGE insert-only sobre o stage deduplicado
+    monkeypatch.setattr(iceberg, 'garantir_tabela', lambda df, db, table: None)
+    sessao = SessaoFalsa()
+    df = DataFrameFalso(sessao, linhas=3)
+
+    # Act
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        iceberg.merge_somente_insere(df, 'db', 'hub_x', ['x_hk'])
+
+    # Assert
+    assert 'WHEN NOT MATCHED THEN INSERT *' in sessao.sqls[0]
+    assert 'UPDATE SET' not in sessao.sqls[0]  # insert-only: nunca atualiza
+    assert _ultimo_log(caplog) == {
+        'event': 'vault_write',
+        'table': 'hub_x',
+        'staged_rows': 3,
+    }
+
+
+def test_merge_atualiza_ou_insere_executa_upsert_e_loga_linhas(monkeypatch, caplog):
+    # Arrange — references: upsert (estado corrente, sem histórico)
+    monkeypatch.setattr(iceberg, 'garantir_tabela', lambda df, db, table: None)
+    sessao = SessaoFalsa()
+    df = DataFrameFalso(sessao, linhas=2)
+
+    # Act
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        iceberg.merge_atualiza_ou_insere(df, 'db', 'ref_x', ['k'])
+
+    # Assert
+    assert 'WHEN MATCHED THEN UPDATE SET *' in sessao.sqls[0]
+    assert _ultimo_log(caplog) == {
+        'event': 'vault_write',
+        'table': 'ref_x',
+        'staged_rows': 2,
+    }
+
+
+def test_merge_de_satellite_anexa_novas_versoes_e_loga_linhas(monkeypatch, caplog):
+    # Arrange — satellite: só as linhas com hashdiff novo entram (append)
+    monkeypatch.setattr(iceberg, 'garantir_tabela', lambda df, db, table: None)
+    sessao = SessaoFalsa(tabela_atual='tabela_atual')
+    novas = DataFrameFalso(sessao, linhas=2)
+    monkeypatch.setattr(
+        iceberg, 'novas_linhas_de_satellite', lambda stage, atual, hk: novas
+    )
+    df = DataFrameFalso(sessao, linhas=5)
+
+    # Act
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        iceberg.merge_de_satellite(df, 'db', 'sat_x', 'x_hk')
+
+    # Assert
+    assert novas.escrita.appends == 1
+    assert _ultimo_log(caplog) == {
+        'event': 'vault_write',
+        'table': 'sat_x',
+        'appended_rows': 2,
+    }
 
 
 def test_escrever_frame_do_vault_despacha_pela_estrategia(monkeypatch):
