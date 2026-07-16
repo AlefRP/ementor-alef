@@ -209,6 +209,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: security configuration com `cloudwatch_encryption_mode = "SSE-KMS"` faz o runner chamar `logs:AssociateKmsKey` ao criar o log group; a managed `AWSGlueServiceRole` para em Create*/PutLogEvents. Nenhum gate estático pega — a exigência só aparece quando o job RODA.
 - Regra: ligou cifra KMS nos logs de um serviço (Glue, mas vale geral), a role de execução ganha `logs:AssociateKmsKey` escopado a `log-group:/aws-glue/*` E a key policy permite `logs.<region>.amazonaws.com` — as DUAS pontas, no mesmo PR da security configuration.
 
+## 2026-07-16 · aws · force_destroy de aws_iam_user exige as APIs de MFA na policy do deployer
+- Sintoma: `make tf-destroy` morreu deletando os users analistas — `iam:ListVirtualMFADevices ... on resource: mfa/` negado; e o Deny de auto-edição impediu o próprio terraform de se corrigir (fix só via root).
+- Causa raiz: o provider, com `force_destroy`, varre MFA antes do DeleteUser (ListVirtualMFADevices é ação de CONTA, só aceita Resource "*"); a policy escopada listou só o ciclo óbvio (login profile, access keys). Deny de auto-edição transforma qualquer gap em intervenção root.
+- Regra: policy de deployer que gerencia users cobre o ciclo de vida INTEIRO que o force_destroy percorre: ListVirtualMFADevices (*), DeactivateMFADevice (users do prefixo), DeleteVirtualMFADevice (mfa/*). Antes de ativar deny de auto-edição, ensaiar create+destroy completo do recurso novo.
+
 ## 2026-07-16 · aws · Admin do Lake Formation enxerga o catálogo mas não lê dados
 - Sintoma: query no console Athena (user terraform, admin do data lake) falhou com "Principal does not have any privilege on specified resource" — com as tabelas aparecendo na árvore.
 - Causa raiz: admin LF tem DESCRIBE implícito, mas SELECT é sempre grant explícito; as tabelas da silver pertencem à role do Glue (criador = dono). A governança foi entregue sem grants de consumo para humanos/CI.

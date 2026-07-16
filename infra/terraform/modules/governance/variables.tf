@@ -50,7 +50,18 @@ variable "gold_database_name" {
 }
 
 variable "consumer_principal_arns" {
-  description = "ARNs IAM (users/roles) com leitura na silver e na gold via Lake Formation. Vazio = quem aplica (o admin do data lake)."
+  description = "ARNs IAM (users/roles) com leitura na silver e na gold via Lake Formation. Vazio = quem aplica (o admin do data lake). O analista entra sempre, além desta lista."
+  type        = list(string)
+  default     = []
+}
+
+variable "gold_workgroup_name" {
+  description = "Workgroup do Athena da gold (escopo das queries do analista)."
+  type        = string
+}
+
+variable "analistas" {
+  description = "Nomes dos analistas humanos; cada um vira o user IAM <prefixo>-analista-<nome>, com consumo via Lake Formation."
   type        = list(string)
   default     = []
 }
