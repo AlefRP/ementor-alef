@@ -30,6 +30,11 @@ def configurar_iceberg(spark, silver_bucket: str) -> None:
     """Configura o catálogo Iceberg/Glue; no Glue o --conf do job é quem vale.
 
     Repetir aqui permite rodar o runtime fora do Glue (testes, Spark local).
+    Só entram as configs de catálogo, que são DINÂMICAS (o catálogo é
+    instanciado no primeiro uso). ``spark.sql.extensions`` é config ESTÁTICA:
+    setá-la numa sessão ativa lança ``Cannot modify the value of a static
+    config`` — ela precisa nascer com a sessão (no Glue, o ``--conf`` do job;
+    fora dele, ``SparkSession.builder.config``).
     """
     spark.conf.set(
         f'spark.sql.catalog.{CATALOG}',
@@ -46,10 +51,6 @@ def configurar_iceberg(spark, silver_bucket: str) -> None:
     spark.conf.set(
         f'spark.sql.catalog.{CATALOG}.warehouse',
         f's3://{silver_bucket}/warehouse/',
-    )
-    spark.conf.set(
-        'spark.sql.extensions',
-        'org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions',
     )
 
 
