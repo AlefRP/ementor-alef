@@ -214,6 +214,27 @@ resource "aws_iam_role_policy_attachment" "glue_service" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
+# A security configuration dos jobs silver cifra os logs com SSE-KMS; ao criar
+# o log group, o runner do Glue chama logs:AssociateKmsKey — ação que a managed
+# AWSGlueServiceRole NÃO concede (ela para em Create*/PutLogEvents). Sem isso o
+# job morre no bootstrap, antes de qualquer linha do script. Escopo restrito
+# aos log groups do Glue nesta conta/região.
+data "aws_iam_policy_document" "glue_logs_kms" {
+  statement {
+    sid     = "AssociateKmsKeyOnGlueLogGroups"
+    actions = ["logs:AssociateKmsKey"]
+    resources = [
+      "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws-glue/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "glue_logs_kms" {
+  name   = "associate-kms-key-glue-logs"
+  role   = aws_iam_role.glue_job.id
+  policy = data.aws_iam_policy_document.glue_logs_kms.json
+}
+
 # ---------- EC2 (APIs de data product) ----------
 data "aws_iam_policy_document" "ec2_assume" {
   statement {

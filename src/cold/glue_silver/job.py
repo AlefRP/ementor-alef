@@ -13,7 +13,7 @@ from iceberg import (
     configurar_iceberg,
     escrever_frame_do_vault,
     garantir_database,
-    log_json,
+    registrar_log,
 )
 from raw import caminho_frio, ler_arquivos_de_lote_json
 from vault import montar_frames_do_vault
@@ -60,10 +60,10 @@ def main() -> None:
             processar_dataset(
                 spark, dataset, args['raw_bucket'], args['silver_database']
             )
-            log_json(event='dataset_done', dataset=dataset)
+            registrar_log(event='dataset_done', dataset=dataset)
         except Exception as erro:  # noqa: BLE001 — reportado e re-levantado no fim
             falhas.append(dataset)
-            log_json(event='dataset_failed', dataset=dataset, error=str(erro))
+            registrar_log(event='dataset_failed', dataset=dataset, error=str(erro))
 
     job.commit()
     if falhas:

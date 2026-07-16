@@ -29,7 +29,7 @@ logger.setLevel(logging.INFO)
 SQL_DIR = Path(__file__).parent
 
 
-def _config() -> dict:
+def _configuracao() -> dict:
     """Lê a configuração do ambiente a cada invocação (testável)."""
     return {
         'host': os.environ['PGHOST'],
@@ -44,13 +44,13 @@ def _config() -> dict:
     }
 
 
-def _run_sql_file(cursor, name: str) -> None:
+def _rodar_arquivo_sql(cursor, name: str) -> None:
     cursor.execute(SQL_DIR.joinpath(name).read_text(encoding='utf-8'))
 
 
 def handler(event, context):
     """Aplica schema, semeia (uma vez) e cria o usuário de leitura da API."""
-    config = _config()
+    config = _configuracao()
     try:
         with psycopg.connect(
             host=config['host'],
@@ -60,15 +60,15 @@ def handler(event, context):
             password=config['password'],
         ) as conn:
             with conn.cursor() as cursor:
-                _run_sql_file(cursor, 'olist_schema.sql')
+                _rodar_arquivo_sql(cursor, 'olist_schema.sql')
                 conn.commit()
 
-                seeded = olist.already_seeded(cursor)
-                counts = {} if seeded else olist.load(cursor, config['sizes'])
+                seeded = olist.ja_semeado(cursor)
+                counts = {} if seeded else olist.carregar(cursor, config['sizes'])
                 conn.commit()
 
                 # Depois do seed: o GRANT SELECT precisa das tabelas existindo.
-                _run_sql_file(cursor, 'create_api_reader.sql')
+                _rodar_arquivo_sql(cursor, 'create_api_reader.sql')
                 conn.commit()
         logger.info(
             json.dumps(

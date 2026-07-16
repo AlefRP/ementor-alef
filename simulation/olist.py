@@ -8,8 +8,8 @@ O vocabulário abaixo (categorias, UFs, tipos de pagamento) é a **fonte única*
 também dos eventos da camada quente (``simulation/events.py``): é o que permite
 a um ETL futuro unir as duas camadas com domínios compatíveis.
 
-Geração pura, separada do I/O: as funções ``gen_*`` só devolvem tuplas; quem
-fala com o Postgres é ``copy_rows``/``load``.
+Geração pura, separada do I/O: as funções ``gerar_*`` só devolvem tuplas; quem
+fala com o Postgres é ``copiar_linhas``/``carregar``.
 """
 from __future__ import annotations
 
@@ -43,33 +43,33 @@ fake = Faker('pt_BR')
 _RNG = random.Random()  # nosec B311
 
 
-def seed_random(seed: int) -> None:
+def fixar_semente(semente: int) -> None:
     """Fixa as sementes (reprodutibilidade em teste e em lab)."""
-    _RNG.seed(seed)
-    Faker.seed(seed)
+    _RNG.seed(semente)
+    Faker.seed(semente)
 
 
-def _new_id() -> str:
+def _novo_id() -> str:
     """Id no formato de uuid4 hex, porém derivado de ``_RNG``.
 
     ``uuid.uuid4()`` lê de ``os.urandom`` e ignora a semente fixada por
-    ``seed_random``, o que quebraria a reprodutibilidade prometida por
-    ``seed_random``/``--seed``.
+    ``fixar_semente``, o que quebraria a reprodutibilidade prometida por
+    ``fixar_semente``/``--seed``.
     """
     return uuid.UUID(int=_RNG.getrandbits(128), version=4).hex
 
 
-def _zip_prefix() -> str:
+def _prefixo_cep() -> str:
     return str(fake.random_int(10000, 99999))
 
 
-def gen_customers(n: int) -> list[tuple]:
+def gerar_customers(n: int) -> list[tuple]:
     """Clientes: customer_id único + customer_unique_id (a pessoa por trás)."""
     return [
         (
-            _new_id(),
-            _new_id(),
-            _zip_prefix(),
+            _novo_id(),
+            _novo_id(),
+            _prefixo_cep(),
             fake.city(),
             _RNG.choice(CUSTOMER_STATES),
         )
@@ -77,17 +77,17 @@ def gen_customers(n: int) -> list[tuple]:
     ]
 
 
-def gen_sellers(n: int) -> list[tuple]:
+def gerar_sellers(n: int) -> list[tuple]:
     return [
-        (_new_id(), _zip_prefix(), fake.city(), _RNG.choice(CUSTOMER_STATES))
+        (_novo_id(), _prefixo_cep(), fake.city(), _RNG.choice(CUSTOMER_STATES))
         for _ in range(n)
     ]
 
 
-def gen_geolocation(n: int) -> list[tuple]:
+def gerar_geolocation(n: int) -> list[tuple]:
     return [
         (
-            _zip_prefix(),
+            _prefixo_cep(),
             float(fake.latitude()),
             float(fake.longitude()),
             fake.city(),
@@ -97,10 +97,10 @@ def gen_geolocation(n: int) -> list[tuple]:
     ]
 
 
-def gen_products(n: int) -> list[tuple]:
+def gerar_products(n: int) -> list[tuple]:
     return [
         (
-            _new_id(),
+            _novo_id(),
             _RNG.choice(list(PRODUCT_CATEGORIES)),
             _RNG.randint(20, 60),
             _RNG.randint(100, 3000),
@@ -114,16 +114,16 @@ def gen_products(n: int) -> list[tuple]:
     ]
 
 
-def gen_order_graph(
-    order_count: int,
+def gerar_grafo_de_pedidos(
+    quantidade_de_pedidos: int,
     customer_ids: list[str],
     product_ids: list[str],
     seller_ids: list[str],
 ) -> dict[str, list[tuple]]:
     """Pedidos + itens + pagamentos + reviews coerentes entre si (FKs válidas)."""
     orders, items, payments, reviews = [], [], [], []
-    for _ in range(order_count):
-        order_id = _new_id()
+    for _ in range(quantidade_de_pedidos):
+        order_id = _novo_id()
         purchased = fake.date_time_between(start_date='-2y', end_date='now')
         approved = purchased + timedelta(hours=_RNG.randint(1, 48))
         delivered = approved + timedelta(days=_RNG.randint(1, 20))
@@ -163,7 +163,7 @@ def gen_order_graph(
         )
         reviews.append(
             (
-                _new_id(),
+                _novo_id(),
                 order_id,
                 _RNG.randint(1, 5),
                 None,
@@ -263,12 +263,12 @@ DEFAULT_SIZES = {
 }
 
 
-def build_dataset(sizes: dict[str, int]) -> dict[str, list[tuple]]:
+def montar_dataset(sizes: dict[str, int]) -> dict[str, list[tuple]]:
     """Gera todas as tabelas já na ordem de carga (dimensões antes dos fatos)."""
-    customers = gen_customers(sizes['customers'])
-    sellers = gen_sellers(sizes['sellers'])
-    products = gen_products(sizes['products'])
-    graph = gen_order_graph(
+    customers = gerar_customers(sizes['customers'])
+    sellers = gerar_sellers(sizes['sellers'])
+    products = gerar_products(sizes['products'])
+    grafo = gerar_grafo_de_pedidos(
         sizes['orders'],
         [row[0] for row in customers],
         [row[0] for row in products],
@@ -278,13 +278,13 @@ def build_dataset(sizes: dict[str, int]) -> dict[str, list[tuple]]:
         'product_category_name_translation': list(PRODUCT_CATEGORIES.items()),
         'customers': customers,
         'sellers': sellers,
-        'geolocation': gen_geolocation(sizes['geolocation']),
+        'geolocation': gerar_geolocation(sizes['geolocation']),
         'products': products,
-        **graph,
+        **grafo,
     }
 
 
-def copy_rows(cursor, table: str, rows: list[tuple]) -> None:
+def copiar_linhas(cursor, table: str, rows: list[tuple]) -> None:
     """Carga em massa via COPY (ordens de magnitude mais rápida que INSERT)."""
     columns = ', '.join(COLUMNS[table])
     with cursor.copy(f'COPY olist.{table} ({columns}) FROM STDIN') as copy:
@@ -292,15 +292,15 @@ def copy_rows(cursor, table: str, rows: list[tuple]) -> None:
             copy.write_row(row)
 
 
-def already_seeded(cursor) -> bool:
+def ja_semeado(cursor) -> bool:
     """Idempotência: se já há pedidos, não recarrega nada."""
     cursor.execute('SELECT count(*) FROM olist.orders')
     return cursor.fetchone()[0] > 0
 
 
-def load(cursor, sizes: dict[str, int]) -> dict[str, int]:
+def carregar(cursor, sizes: dict[str, int]) -> dict[str, int]:
     """Carrega o dataset inteiro; retorna a contagem por tabela."""
-    dataset = build_dataset(sizes)
+    dataset = montar_dataset(sizes)
     for table in COLUMNS:
-        copy_rows(cursor, table, dataset[table])
+        copiar_linhas(cursor, table, dataset[table])
     return {table: len(rows) for table, rows in dataset.items()}

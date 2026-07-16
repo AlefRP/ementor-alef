@@ -39,6 +39,22 @@ variable "artifacts_bucket_arn" {
   type        = string
 }
 
+variable "silver_database_name" {
+  description = "Database Glue/Athena da camada silver (alvo dos grants de leitura do consumo)."
+  type        = string
+}
+
+variable "gold_database_name" {
+  description = "Database Glue/Athena da camada gold (alvo dos grants de leitura do consumo)."
+  type        = string
+}
+
+variable "consumer_principal_arns" {
+  description = "ARNs IAM (users/roles) com leitura na silver e na gold via Lake Formation. Vazio = quem aplica (o admin do data lake)."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Tags adicionais aplicadas aos recursos do módulo."
   type        = map(string)

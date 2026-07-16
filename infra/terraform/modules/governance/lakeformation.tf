@@ -95,3 +95,46 @@ resource "aws_lakeformation_permissions" "glue_silver_location" {
 
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
+
+# Quem CONSULTA o lakehouse (console, consumer via CLI, esteira) não lê nada de
+# graça: o admin do data lake tem DESCRIBE implícito, mas SELECT é sempre grant
+# explícito — e as tabelas da silver pertencem à role do Glue, que as criou.
+# Views do Athena não são "definer": consultar a gold exige SELECT também nas
+# tabelas da silver que cada view referencia — por isso o grant nas duas camadas.
+locals {
+  # Sem lista explícita, o consumo é de quem aplica (o IAM user admin do lab —
+  # o mesmo principal do consumer via CLI e da esteira).
+  consumidores = (
+    length(var.consumer_principal_arns) > 0
+    ? var.consumer_principal_arns
+    : [data.aws_caller_identity.current.arn]
+  )
+}
+
+resource "aws_lakeformation_permissions" "consumer_silver_tables" {
+  for_each = toset(local.consumidores)
+
+  principal   = each.value
+  permissions = ["SELECT", "DESCRIBE"]
+
+  table {
+    database_name = var.silver_database_name
+    wildcard      = true # todas as tabelas DV, atuais e futuras
+  }
+
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "consumer_gold_tables" {
+  for_each = toset(local.consumidores)
+
+  principal   = each.value
+  permissions = ["SELECT", "DESCRIBE"]
+
+  table {
+    database_name = var.gold_database_name
+    wildcard      = true # todas as views dimensionais, atuais e futuras
+  }
+
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}

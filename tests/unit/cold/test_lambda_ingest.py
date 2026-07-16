@@ -20,7 +20,7 @@ def ambiente_da_lambda(monkeypatch):
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'testing')
     monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'testing')
     monkeypatch.setenv('AWS_DEFAULT_REGION', 'us-east-1')
-    monkeypatch.setenv('API_BASE_URL', 'http://api.lakehouse.internal:8000')
+    monkeypatch.setenv('API_BASE_URL', 'https://api.lakehouse.internal:8000')
     monkeypatch.setenv('RAW_BUCKET', BUCKET)
     monkeypatch.setenv('PAGE_SIZE', '2')
     ingest._S3 = None
@@ -182,11 +182,13 @@ def test_buscar_pagina_monta_url_com_cursor_e_token(ambiente_da_lambda, monkeypa
     assert capturado['token'] == 'tok3n'
 
 
-def test_buscar_pagina_rejeita_esquema_nao_suportado(ambiente_da_lambda, monkeypatch):
-    # Arrange — _configuracao() fica FORA do raises: dentro do bloco só pode
-    # haver a chamada sob teste, senão uma exceção da montagem passaria por
-    # aprovada (Sonar S5778).
-    monkeypatch.setenv('API_BASE_URL', 'ftp://interno')
+@pytest.mark.parametrize('base_url', ['http://interno:8000', 'ftp://interno'])
+def test_buscar_pagina_exige_https(ambiente_da_lambda, monkeypatch, base_url):
+    # Arrange — só HTTPS trafega: http em claro E qualquer outro esquema sem TLS
+    # são recusados antes do urlopen. _configuracao() fica FORA do raises: dentro
+    # do bloco só pode haver a chamada sob teste, senão uma exceção da montagem
+    # passaria por aprovada (Sonar S5778).
+    monkeypatch.setenv('API_BASE_URL', base_url)
     configuracao = ingest._configuracao()
     marker = {'purchased_after': ingest.KEYSET_START, 'after_id': ''}
 

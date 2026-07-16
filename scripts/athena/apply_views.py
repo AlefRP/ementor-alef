@@ -108,7 +108,7 @@ def _executar(athena, sql: str, workgroup: str, nome: str) -> str:
     return execucao
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+def _interpretar_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--tf-dir', help='environment do terraform (lê os outputs)')
     parser.add_argument('--silver-database', help=AJUDA_SOBRESCREVE)
@@ -144,7 +144,7 @@ def _resolver_alvos(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+    args = _interpretar_args(argv)
     arquivos = arquivos_de_ddl()
     if not arquivos:
         _dizer('nenhum .sql encontrado em src/{cold,hot}/athena_gold/')

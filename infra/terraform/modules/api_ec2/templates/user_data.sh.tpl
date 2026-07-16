@@ -6,16 +6,38 @@
 # bundle_etag=${bundle_etag} (bundle novo => user_data muda => replace da EC2)
 set -euo pipefail
 exec > /var/log/user-data.log 2>&1
-trap 'aws s3 cp /var/log/user-data.log s3://${artifacts_bucket}/logs/user-data-${service_name}.log || true' ERR
+
+retry() {
+  local tentativas="$1"
+  local espera="$2"
+  shift 2
+  local tentativa=1
+  until "$@"; do
+    if [ "$tentativa" -ge "$tentativas" ]; then
+      return 1
+    fi
+    echo "tentativa $tentativa/$tentativas falhou: $*; aguardando $${espera}s"
+    tentativa=$((tentativa + 1))
+    sleep "$espera"
+  done
+}
+
+enviar_log_boot() {
+  retry 6 10 aws s3 cp \
+    /var/log/user-data.log \
+    s3://${artifacts_bucket}/logs/user-data-${service_name}.log || true
+}
+
+trap enviar_log_boot ERR
 
 dnf install -y python3.11
 
 mkdir -p /opt/lakehouse
-aws s3 cp 's3://${artifacts_bucket}/${bundle_key}' /opt/lakehouse/bundle.tar.gz
+retry 12 10 aws s3 cp 's3://${artifacts_bucket}/${bundle_key}' /opt/lakehouse/bundle.tar.gz
 tar -xzf /opt/lakehouse/bundle.tar.gz -C /opt/lakehouse
 
 python3.11 -m venv /opt/lakehouse/.venv
-/opt/lakehouse/.venv/bin/pip install --no-index \
+/opt/lakehouse/.venv/bin/pip install --upgrade --no-index \
   --find-links /opt/lakehouse/wheelhouse 'aws-lakehouse-mentoria[api]'
 
 # TLS self-signed gerado pelo Terraform (SAN = IP privado): uvicorn serve HTTPS,
@@ -50,4 +72,4 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now ${service_name}.service
 
-aws s3 cp /var/log/user-data.log s3://${artifacts_bucket}/logs/user-data-${service_name}.log || true
+enviar_log_boot

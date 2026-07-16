@@ -184,7 +184,37 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a lista de targets nativos da EventBridge *Rule* tem Glue **workflow**, não Glue **job**; o erro de "formato" é a API dizendo que o TIPO de destino não existe, não que o ARN está malformado. `terraform validate`/`plan` não pegam isso (o ARN é uma string válida) — só o apply.
 - Regra: para agendar `glue:StartJobRun`, use `aws_scheduler_schedule` (EventBridge Scheduler) com o target universal `arn:aws:scheduler:::aws-sdk:glue:startJobRun` e `input = jsonencode({ JobName = ... })`; trust da execution role é `scheduler.amazonaws.com` (não `events.amazonaws.com`). Antes de apontar um target de Rule, confira se o serviço está na lista de targets suportados.
 
+## 2026-07-15 · terraform · Athena workgroup com histórico não deleta sem force_destroy
+- Sintoma: `tf-apply-plan` (destroy) da esteira morreu no fim — `DeleteWorkGroup ... InvalidRequestException: WorkGroup ...-gold is not empty`, depois de ~20 min destruindo a rede.
+- Causa raiz: as queries do consumer deixam histórico no workgroup; `DeleteWorkGroup` sem `RecursiveDeleteOption` recusa workgroup não-vazio. O recurso não tinha `force_destroy`, e — igual ao bucket — o provider lê esse flag do STATE ao deletar, então `-var` no destroy não resolveria.
+- Regra: `aws_athena_workgroup` (e todo recurso com histórico/objetos: bucket, workgroup) ganha `force_destroy = var.force_destroy` e entra no `tf-force-arm` (um `-target` cada) para gravar o flag no state ANTES do destroy. Precondição de teardown conhecível não pode aparecer no minuto 20.
+
 ## 2026-07-14 · tool · Here-string do PowerShell na tool Bash corrompeu o commit
 - Sintoma: `git commit -m @'...'@` pela tool Bash gerou a mensagem com assunto `@` e um `@` solto no fim; precisou de `--amend`.
 - Causa raiz: a tool Bash é Git Bash (POSIX sh), não PowerShell — `@'...'@` não é here-string ali, é texto literal. As duas tools coexistem e cada uma tem a sua sintaxe.
 - Regra: mensagem multi-linha na tool Bash vai por `git commit -F <arquivo>` (ou heredoc `<<'EOF'`); `@'...'@` só na tool PowerShell. Depois de commitar, conferir com `git log -1 --format=%B`.
+
+## 2026-07-16 · terraform · EC2 boota antes da própria IAM policy em apply do zero
+- Sintoma: Event API nunca subiu (Connection refused no producer); user_data falhou 12x com 403 no bundle e AccessDenied no ship do log — "no identity-based policy allows". CloudTrail: instância às 11:55:54, policy da role só às 12:02:05.
+- Causa raiz: a EC2 referencia só o NOME do instance profile (string imediata); a policy da role espera o RDS (~7 min, rds_resource_id no rds-db:connect). O grafo não tem aresta instância→policy, e user_data roda 1x — a corrida é fatal e silenciosa (o ShipBootLog estava na mesma policy ausente). A api-cold só sobreviveu porque TAMBÉM espera o RDS.
+- Regra: recurso cujo bootstrap USA permissões (user_data, init container) ganha aresta explícita para a policy — `depends_on` no OUTPUT que entrega o profile/role (cirúrgico; module depends_on difere data sources à toa). Conferir no CloudTrail (PutRolePolicy vs LaunchTime) quando IAM "que existe" foi negada no passado.
+
+## 2026-07-16 · python · spark.conf.set de config ESTÁTICA quebra só em runtime (dublê mascara)
+- Sintoma: jobs Glue silver morreram em `configurar_iceberg` — `AnalysisException: Cannot modify the value of a static config: spark.sql.extensions`; os 42 testes unitários passavam.
+- Causa raiz: `spark.sql.extensions` é config estática — só vale na CRIAÇÃO da sessão; `spark.conf.set` numa sessão ativa lança em qualquer Spark. O teste usava `FakeSpark`, que aceita qualquer set, e a sessão local dos testes nunca chamava a função de verdade.
+- Regra: função que configura Spark separa estática (extensions, warehouse.dir — via `--conf` do job/builder) de dinâmica (`spark.sql.catalog.*` — pode em runtime); dublê de `spark.conf` não valida semântica — para config, ou testa contra sessão real ou confia no `--conf` do Terraform como fonte única.
+
+## 2026-07-16 · aws · Security configuration SSE-KMS exige logs:AssociateKmsKey na role do Glue
+- Sintoma: os 2 jobs Glue silver falharam no bootstrap em prod — `Failed to AssociateKmsKey for logGroup ... not authorized to perform: logs:AssociateKmsKey`; silver ficou vazia com a raw ok.
+- Causa raiz: security configuration com `cloudwatch_encryption_mode = "SSE-KMS"` faz o runner chamar `logs:AssociateKmsKey` ao criar o log group; a managed `AWSGlueServiceRole` para em Create*/PutLogEvents. Nenhum gate estático pega — a exigência só aparece quando o job RODA.
+- Regra: ligou cifra KMS nos logs de um serviço (Glue, mas vale geral), a role de execução ganha `logs:AssociateKmsKey` escopado a `log-group:/aws-glue/*` E a key policy permite `logs.<region>.amazonaws.com` — as DUAS pontas, no mesmo PR da security configuration.
+
+## 2026-07-16 · aws · Admin do Lake Formation enxerga o catálogo mas não lê dados
+- Sintoma: query no console Athena (user terraform, admin do data lake) falhou com "Principal does not have any privilege on specified resource" — com as tabelas aparecendo na árvore.
+- Causa raiz: admin LF tem DESCRIBE implícito, mas SELECT é sempre grant explícito; as tabelas da silver pertencem à role do Glue (criador = dono). A governança foi entregue sem grants de consumo para humanos/CI.
+- Regra: governança LF inclui grants de CONSUMO (SELECT/DESCRIBE com TableWildcard) no mesmo PR dos locations/roles; view do Athena não é definer — quem lê a gold precisa de SELECT também na silver subjacente.
+
+## 2026-07-15 · processo · Renomear "funções em PT-BR" virou exagero (main → principal)
+- Sintoma: pedido de "funções em PT-BR" me levou a traduzir `main`→`principal` em ~12 arquivos e a reescrever tooling 100% inglês (release.py, ensure_api_bundle.py); o usuário corrigiu: "main pode ser main, sem exagero".
+- Causa raiz: tratei "PT-BR" como tradução literal de TODO identificador, ignorando que `main`/`handler` são idiomas de entrypoint e que plumbing de CI/release não é domínio do lakehouse.
+- Regra: PT-BR mira funções de DOMÍNIO; preserve idiomas universais (`main`, `handler`) e alinhe cada arquivo à sua convenção MAJORITÁRIA existente (traduzir o holdout inglês de um arquivo já-PT-BR é alinhamento; traduzir arquivo 100% inglês de tooling é exagero). Na dúvida de escopo amplo, confirmar a fronteira antes de reescrever.

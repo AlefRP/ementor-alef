@@ -151,6 +151,20 @@ def test_raw_and_silver_registered_in_lake_formation(resources):
     } <= names, f'esperava lakeformation_resource p/ raw e silver; encontrado: {names}'
 
 
+def test_consumer_grants_select_on_silver_and_gold(resources):
+    """Governança: o consumo tem SELECT explícito na silver e na gold.
+
+    Admin do data lake só ganha DESCRIBE implícito; sem estes grants o Athena
+    nega a query ('Principal does not have any privilege').
+    """
+    grants = _by_type(resources, 'aws_lakeformation_permissions')
+    com_select = {g.name for g in grants if re.search(r'"SELECT"', g.body)}
+    assert {
+        'consumer_silver_tables',
+        'consumer_gold_tables',
+    } <= com_select, f'esperava grants SELECT do consumo; encontrado: {com_select}'
+
+
 def test_execution_roles_exist_one_per_service(resources):
     """Governança: uma role por serviço/função (cold, hot, glue, ec2)."""
     roles = {r.name for r in _by_type(resources, 'aws_iam_role')}
@@ -498,6 +512,11 @@ def test_gold_layer_is_queryable_and_cost_capped(resources):
         assert 'bytes_scanned_cutoff_per_query' in workgroup.body
         assert 'enforce_workgroup_configuration    = true' in workgroup.body
         assert 'encryption_option' in workgroup.body
+        # Teardown: sem force_destroy o DeleteWorkGroup falha com "is not empty"
+        # (o histórico das queries do consumer fica no workgroup).
+        assert (
+            'force_destroy' in workgroup.body
+        ), 'workgroup precisa de force_destroy p/ o teardown apagar o histórico'
 
 
 def test_pipeline_failures_raise_cloudwatch_alarms(resources):

@@ -13,7 +13,7 @@ from iceberg import (
     configurar_iceberg,
     escrever_frame_do_vault,
     garantir_database,
-    log_json,
+    registrar_log,
 )
 from raw import caminho_quente, ler_arquivos_de_evento_json
 from vault import montar_frames_do_vault
@@ -47,7 +47,7 @@ def main() -> None:
     )
     for vault_frame in montar_frames_do_vault(achatar_eventos(eventos), EVENT_VAULT):
         escrever_frame_do_vault(vault_frame, args['silver_database'])
-    log_json(event='microbatch_done')
+    registrar_log(event='microbatch_done')
 
     job.commit()
 

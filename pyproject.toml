@@ -108,15 +108,12 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 branch = true
-# Entrypoints dos jobs Glue importam awsglue, que só existe dentro do Glue —
-# a lógica deles vive em src/glue_silver_runtime, que É coberta pelos testes.
-omit = [
-  "src/cold/glue_silver/job.py",
-  "src/hot/glue_silver_microbatch/job.py",
-]
 
 [tool.coverage.report]
 show_missing = true
+# O guard de entrypoint nunca roda no import dos testes (awsglue é stubado em
+# tests/unit/glue_silver/test_jobs.py, que cobre os jobs de verdade).
+exclude_also = ["if __name__ == '__main__':"]
 
 [dependency-groups]
 dev = [

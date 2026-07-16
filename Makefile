@@ -5,23 +5,26 @@ TF_ROOT := infra/terraform
 TF_BOOTSTRAP := infra/terraform/bootstrap
 TF_PLAN_FILE ?= tfplan
 CHECKOV_ARGS ?=
-# Recurso alvo do tf-force-arm: os buckets das camadas (todas as instâncias).
-TF_FORCE_TARGET ?= module.storage.aws_s3_bucket.layer
+# Recursos alvo do tf-force-arm: os buckets das camadas (todas as instâncias) e
+# o workgroup do Athena. Ambos leem force_destroy do STATE ao deletar (o -var no
+# destroy é ignorado), por isso o flag é gravado antes, aqui — um -target cada.
+TF_FORCE_TARGETS ?= module.storage.aws_s3_bucket.layer module.gold.aws_athena_workgroup.gold
 # Buckets do lakehouse (prefixo fixo do projeto + camadas).
 TF_PREFIX := alef-rp-aws-lakehouse-$(TF_ENV)
 TF_BUCKETS := $(TF_PREFIX)-raw $(TF_PREFIX)-silver $(TF_PREFIX)-artifacts
 ARTIFACTS_BUCKET ?= $(TF_PREFIX)-artifacts
+ATHENA_WORKGROUP ?= $(TF_PREFIX)-gold
 
 .PHONY: install-prod install-hooks format check-format lint \
         security security-deps security-secrets secrets-baseline \
         test test-unit test-integration test-taac test-cov api-bundle \
         api-bundle-upload event-producer-bundle db-seeder-bundle seed-db \
-        athena-gold athena-gold-dry-run athena-query \
+        silver-run athena-gold athena-gold-dry-run athena-query \
         release-plan release-apply \
         tf-bootstrap-plan tf-bootstrap-apply \
         tf-fmt tf-fmt-check tf-validate tf-lint tf-security \
-        tf-init tf-plan tf-plan-out tf-ensure-bundle tf-apply tf-apply-plan tf-output \
-        tf-empty-buckets tf-force-arm tf-destroy-precheck tf-destroy \
+        tf-init tf-plan tf-plan-out tf-ensure-bundle tf-apply tf-apply-plan tf-output raw-bootstrap \
+        tf-empty-buckets tf-empty-athena-workgroup tf-force-arm tf-destroy-precheck tf-destroy \
         quality ci
 
 # ---- Setup ----
@@ -123,10 +126,21 @@ seed-db:
 	aws lambda invoke --function-name $$(terraform -chdir=$(TF_DIR) output -raw db_seeder_function_name) --cli-read-timeout 700 build/seed-response.json
 	python -c "import json;print(json.load(open('build/seed-response.json')))"
 
+# ---- Camada silver (Glue) ----
+# Dispara os jobs Glue da silver (cold/hot) e espera concluir. A esteira roda
+# este alvo ANTES do athena-gold: as views da gold leem as tabelas Data Vault da
+# silver, que só existem depois que o job roda (fora daqui ele é agendado por
+# EventBridge). Sem isto, o CREATE OR REPLACE VIEW quebra num ambiente recém
+# aplicado ("Table ... does not exist"). Reprocessar a silver é seguro
+# (merges insert-only por hash key / append por hashdiff).
+silver-run:
+	python scripts/glue/run_silver.py --tf-dir $(TF_DIR)
+
 # ---- Camada gold + consumer (Athena) ----
 # Aplica o DDL das views (src/{cold,hot}/athena_gold/*.sql) no database gold.
 # CREATE OR REPLACE VIEW: idempotente, roda quantas vezes quiser. A esteira
-# chama este alvo no merge à master, depois do apply.
+# chama este alvo no merge à master, depois do apply E do silver-run (a gold lê
+# as tabelas que a silver materializa).
 athena-gold:
 	python scripts/athena/apply_views.py --tf-dir $(TF_DIR)
 
@@ -214,11 +228,22 @@ tf-ensure-bundle:
 
 # Apply manual do ambiente (o terraform pede confirmação; na esteira, apply
 # existe só no rollback.yml, sempre a partir de um plan salvo).
+# Deploy local republica o bundle para a EC2 instalar o codigo deste checkout.
+tf-apply: OVERWRITE ?= 1
 tf-apply: event-producer-bundle db-seeder-bundle tf-ensure-bundle
 	terraform -chdir=$(TF_DIR) apply
+	python scripts/deploy/bootstrap_raw.py --tf-dir $(TF_DIR)
 
 tf-output:
 	terraform -chdir=$(TF_DIR) output
+
+# Dispara a primeira carga fria da raw sem recriar infra: RDS -> API fria -> S3.
+# So a camada FRIA tem esse bootstrap: ela tem backlog historico no RDS para
+# paginar. A camada QUENTE nao — o producer de eventos e reativo e ja e disparado
+# pelo agendamento EventBridge (rate no modulo simulation/event_producer); nao ha
+# carga inicial a antecipar, entao nao existe alvo equivalente para ela.
+raw-bootstrap:
+	python scripts/deploy/bootstrap_raw.py --tf-dir $(TF_DIR)
 
 # Esvazia buckets versionados (raw, silver, artifacts) via API — deleta todas
 # as versões e delete markers. Necessário antes do tf-destroy com FORCE=1,
@@ -226,13 +251,17 @@ tf-output:
 tf-empty-buckets:
 	python scripts/teardown/empty_versioned_bucket.py $(TF_BUCKETS)
 
-# O provider lê `force_destroy` do STATE na hora de deletar o bucket — passar
+# Limpa recursos internos do WorkGroup Athena que podem bloquear DeleteWorkGroup.
+tf-empty-athena-workgroup:
+	python scripts/teardown/check_athena_workgroup.py $(ATHENA_WORKGROUP)
+
+# O provider lê `force_destroy` do STATE na hora de deletar o recurso — passar
 # -var no destroy não tem efeito. Este alvo grava o flag no state (update
-# in-place, só nos buckets) para que o destroy seguinte possa esvaziá-los.
-# AUTO_APPROVE=1 dispensa a confirmação (uso da esteira).
-tf-force-arm: event-producer-bundle db-seeder-bundle tf-empty-buckets
+# in-place, só nos buckets e no workgroup do Athena) para que o destroy seguinte
+# possa esvaziá-los. AUTO_APPROVE=1 dispensa a confirmação (uso da esteira).
+tf-force-arm: event-producer-bundle db-seeder-bundle tf-empty-buckets tf-empty-athena-workgroup
 	terraform -chdir=$(TF_DIR) init
-	terraform -chdir=$(TF_DIR) apply -var="force_destroy=true" -target=$(TF_FORCE_TARGET) $(if $(AUTO_APPROVE),-auto-approve)
+	terraform -chdir=$(TF_DIR) apply -var="force_destroy=true" $(foreach t,$(TF_FORCE_TARGETS),-target=$(t)) $(if $(AUTO_APPROVE),-auto-approve)
 
 # Destroi TODA a infra do ambiente (terraform pede confirmação digitando "yes").
 # Buckets com dados exigem FORCE=1 (arma force_destroy + esvazia raw/silver/artifacts
@@ -243,6 +272,7 @@ tf-force-arm: event-producer-bundle db-seeder-bundle tf-empty-buckets
 # o comando certo. Bucket inexistente conta como vazio (teardown parcial).
 tf-destroy-precheck:
 	python scripts/teardown/empty_versioned_bucket.py --check $(TF_BUCKETS)
+	python scripts/teardown/check_athena_workgroup.py --check $(ATHENA_WORKGROUP)
 
 # validate_bundle=false: o refresh do destroy lê data sources; sem isso, um
 # bundle ausente no bucket de artefatos travaria o teardown.

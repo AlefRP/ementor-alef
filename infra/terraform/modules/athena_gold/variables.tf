@@ -19,6 +19,12 @@ variable "bytes_scanned_cutoff" {
   default     = 1073741824 # 1 GiB — folgado para o Olist, barato se alguém errar
 }
 
+variable "force_destroy" {
+  description = "Permite destruir o workgroup COM histórico de queries (use só em teardown do lab)."
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags adicionais aplicadas aos recursos do módulo."
   type        = map(string)
