@@ -62,6 +62,7 @@
       "Effect": "Allow",
       "Action": [
         "iam:CreateUser",
+        "iam:DeactivateMFADevice",
         "iam:DeleteAccessKey",
         "iam:DeleteLoginProfile",
         "iam:DeleteUser",
@@ -133,9 +134,16 @@
       "Action": [
         "iam:CreateServiceLinkedRole",
         "iam:ListPolicies",
-        "iam:ListRoles"
+        "iam:ListRoles",
+        "iam:ListVirtualMFADevices"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "RemocaoDeMfaVirtualNoTeardown",
+      "Effect": "Allow",
+      "Action": "iam:DeleteVirtualMFADevice",
+      "Resource": "arn:aws:iam::105299591310:mfa/*"
     }
   ]
 }
