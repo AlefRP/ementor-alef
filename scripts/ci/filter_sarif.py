@@ -55,7 +55,7 @@ def main() -> int:
     # SARIF existe e é filtrado normalmente. Ausente, o upload segue sem nós —
     # este script nunca é o motivo de um job vermelho.
     if not args.sarif.is_file():
-        print(f'SARIF nao encontrado em {args.sarif}; nada a filtrar.')
+        print(f'::warning::SARIF file not found: {args.sarif}; skipping filter.')
         return 0
 
     removidos = filtrar(args.sarif)

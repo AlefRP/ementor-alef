@@ -152,7 +152,7 @@ jobs:
         uses: hashicorp/setup-terraform@v4
 
       - name: Setup TFLint
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@v6
 
       # fmt e checkov varrem a árvore inteira (modules/ + environments/ +
       # bootstrap/) — módulo fora do padrão quebra aqui.
@@ -168,7 +168,8 @@ jobs:
       - name: Checkov (segurança de IaC)
         run: |
           pip install "checkov>=3.2,<4"
-          make tf-security CHECKOV_ARGS='--quiet --compact --output cli --output sarif --output-file-path console,infra/terraform/results_sarif.sarif'
+          mkdir -p infra/terraform
+          checkov -d infra/terraform --quiet --compact --output sarif --output-file-path infra/terraform/results_sarif.sarif
 
       # O checkov põe no SARIF também os achados já cobertos por #checkov:skip,
       # e o GitHub abre um alerta de code scanning para cada um — o PR fica com
@@ -177,10 +178,15 @@ jobs:
       # qualquer achado não suprimido; o filtro não afeta o exit code).
       - name: Remover achados suprimidos do SARIF
         if: always()
-        run: python scripts/ci/filter_sarif.py infra/terraform/results_sarif.sarif
+        run: |
+          if [ -f infra/terraform/results_sarif.sarif ]; then
+            python scripts/ci/filter_sarif.py infra/terraform/results_sarif.sarif
+          else
+            echo "::warning::No SARIF produced by Checkov; skipping filter"
+          fi
 
       - name: Upload Checkov SARIF
-        if: always()
+        if: always() && hashFiles('infra/terraform/results_sarif.sarif') != ''
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
