@@ -18,6 +18,11 @@ output "glue_job_role_arn" {
   value       = aws_iam_role.glue_job.arn
 }
 
+output "analistas_user_names" {
+  description = "Users IAM dos analistas (console; senhas criadas fora do Terraform)."
+  value       = [for usuario in aws_iam_user.analista : usuario.name]
+}
+
 # O depends_on cria a aresta que o grafo não tem sozinho: a EC2 só referencia o
 # NOME do profile (string imediata), mas a policy da role espera o RDS (~7 min,
 # rds_resource_id no statement do rds-db:connect). Sem isso, num apply do zero a

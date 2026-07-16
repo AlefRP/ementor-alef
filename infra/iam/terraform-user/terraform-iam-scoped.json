@@ -1,0 +1,141 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RolesDoProjeto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags",
+        "iam:PutRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:UpdateRole"
+      ],
+      "Resource": "arn:aws:iam::105299591310:role/alef-rp-aws-lakehouse-*"
+    },
+    {
+      "Sid": "PoliciesDoProjeto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyTags",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": "arn:aws:iam::105299591310:policy/alef-rp-aws-lakehouse-*"
+    },
+    {
+      "Sid": "InstanceProfilesDoProjeto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AddRoleToInstanceProfile",
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:ListInstanceProfileTags",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:TagInstanceProfile",
+        "iam:UntagInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::105299591310:instance-profile/alef-rp-aws-lakehouse-*"
+    },
+    {
+      "Sid": "UsersDeConsumoDoProjeto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser",
+        "iam:DeleteAccessKey",
+        "iam:DeleteLoginProfile",
+        "iam:DeleteUser",
+        "iam:GetLoginProfile",
+        "iam:GetUser",
+        "iam:ListAccessKeys",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListGroupsForUser",
+        "iam:ListMFADevices",
+        "iam:ListSSHPublicKeys",
+        "iam:ListServiceSpecificCredentials",
+        "iam:ListSigningCertificates",
+        "iam:ListUserPolicies",
+        "iam:ListUserTags",
+        "iam:TagUser",
+        "iam:UntagUser"
+      ],
+      "Resource": "arn:aws:iam::105299591310:user/alef-rp-aws-lakehouse-*"
+    },
+    {
+      "Sid": "AnexaSoPoliciesDoProjetoNosUsers",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy"
+      ],
+      "Resource": "arn:aws:iam::105299591310:user/alef-rp-aws-lakehouse-*",
+      "Condition": {
+        "ArnLike": {
+          "iam:PolicyARN": "arn:aws:iam::105299591310:policy/alef-rp-aws-lakehouse-*"
+        }
+      }
+    },
+    {
+      "Sid": "NaoEditaAsPropriasPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion"
+      ],
+      "Resource": [
+        "arn:aws:iam::105299591310:policy/alef-rp-aws-lakehouse-terraform-iam-scoped",
+        "arn:aws:iam::105299591310:policy/alef-rp-aws-lakehouse-terraform-region-guard"
+      ]
+    },
+    {
+      "Sid": "PassRoleSoParaOsServicosDaStack",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::105299591310:role/alef-rp-aws-lakehouse-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "ec2.amazonaws.com",
+            "events.amazonaws.com",
+            "glue.amazonaws.com",
+            "lakeformation.amazonaws.com",
+            "lambda.amazonaws.com",
+            "scheduler.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LeituraGeralParaPlanERefresh",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole",
+        "iam:ListPolicies",
+        "iam:ListRoles"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -64,6 +64,8 @@ module "governance" {
   # aresta grant→database no grafo (grant em database inexistente falha).
   silver_database_name = module.silver_datavault.silver_database_name
   gold_database_name   = module.gold.gold_database_name
+  gold_workgroup_name  = module.gold.workgroup_name
+  analistas            = var.analistas
 
   tags = local.tags
 }

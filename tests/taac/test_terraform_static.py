@@ -55,12 +55,25 @@ def _e_key_policy_de_kms(policy) -> bool:
     return bool(acoes) and set(acoes) == {'kms'}
 
 
+def _e_policy_de_consumo_via_lake_formation(policy) -> bool:
+    """Policy de consumo do analista: exceção documentada de Resource '*'.
+
+    ``lakeformation:GetDataAccess`` e os ``athena:List*`` de navegação não
+    aceitam recurso específico (limitação da AWS) — o escopo real do dado não
+    está no IAM: vem dos grants SELECT/DESCRIBE do Lake Formation. O teste
+    dedicado do analista garante que o resto da policy continua estreito.
+    """
+    return 'lakeformation:GetDataAccess' in policy.body
+
+
 def test_no_wildcard_in_iam_policies(terraform_blocks):
     """Least-privilege: nenhuma policy própria com Action ou Resource '*'."""
     policies = [
         b
         for b in terraform_blocks
-        if b.type == 'aws_iam_policy_document' and not _e_key_policy_de_kms(b)
+        if b.type == 'aws_iam_policy_document'
+        and not _e_key_policy_de_kms(b)
+        and not _e_policy_de_consumo_via_lake_formation(b)
     ]
     assert policies, 'esperava policies IAM (governance)'
     for policy in policies:
@@ -170,6 +183,25 @@ def test_execution_roles_exist_one_per_service(resources):
     roles = {r.name for r in _by_type(resources, 'aws_iam_role')}
     expected = {'lambda_ingest_cold', 'lambda_ingest_hot', 'glue_job', 'ec2_api'}
     assert expected <= roles, f'roles faltando: {expected - roles}'
+
+
+def test_analista_le_dados_so_via_lake_formation(terraform_blocks):
+    """Analista: nenhum S3 direto nos buckets de dados — só via Lake Formation.
+
+    O IAM dele cobre o trilho (workgroup, metadados, resultados); se um
+    bucket de dados aparecer na policy, o desenho de governança quebrou.
+    """
+    docs = [
+        b
+        for b in terraform_blocks
+        if b.type == 'aws_iam_policy_document' and b.name == 'analista'
+    ]
+    assert docs, 'esperava a policy do analista (governance/analista.tf)'
+    corpo = docs[0].body
+    assert 'lakeformation:GetDataAccess' in corpo, 'analista sem GetDataAccess'
+    assert 'athena-results' in corpo, 'analista sem o prefixo de resultados'
+    assert 'silver_bucket' not in corpo, 'analista com S3 direto na silver'
+    assert 'raw_bucket' not in corpo, 'analista com S3 direto na raw'
 
 
 def test_every_lambda_caps_concurrency(resources):

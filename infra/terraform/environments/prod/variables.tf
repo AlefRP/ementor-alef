@@ -88,6 +88,12 @@ variable "gold_database_name" {
   default     = "gold"
 }
 
+variable "analistas" {
+  description = "Analistas humanos do lakehouse (cada nome vira um user IAM de console com consumo da gold via Athena/Lake Formation)."
+  type        = list(string)
+  default     = ["alef", "julio"]
+}
+
 variable "max_message_age_seconds" {
   description = "Idade máxima tolerada da mensagem mais antiga na fila de eventos antes do alarme."
   type        = number
