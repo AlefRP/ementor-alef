@@ -59,7 +59,13 @@ module "governance" {
   rds_master_secret_arn = module.database.master_user_secret_arn
   rds_resource_id       = module.database.resource_id
   api_db_user           = var.api_db_user # mesmo usuário do PGUSER da API fria
-  tags                  = local.tags
+
+  # Grants de leitura do consumo: referenciar os OUTPUTS dos módulos cria a
+  # aresta grant→database no grafo (grant em database inexistente falha).
+  silver_database_name = module.silver_datavault.silver_database_name
+  gold_database_name   = module.gold.gold_database_name
+
+  tags = local.tags
 }
 
 # =====================================================================

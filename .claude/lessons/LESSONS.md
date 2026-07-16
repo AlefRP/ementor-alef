@@ -209,6 +209,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: security configuration com `cloudwatch_encryption_mode = "SSE-KMS"` faz o runner chamar `logs:AssociateKmsKey` ao criar o log group; a managed `AWSGlueServiceRole` para em Create*/PutLogEvents. Nenhum gate estático pega — a exigência só aparece quando o job RODA.
 - Regra: ligou cifra KMS nos logs de um serviço (Glue, mas vale geral), a role de execução ganha `logs:AssociateKmsKey` escopado a `log-group:/aws-glue/*` E a key policy permite `logs.<region>.amazonaws.com` — as DUAS pontas, no mesmo PR da security configuration.
 
+## 2026-07-16 · aws · Admin do Lake Formation enxerga o catálogo mas não lê dados
+- Sintoma: query no console Athena (user terraform, admin do data lake) falhou com "Principal does not have any privilege on specified resource" — com as tabelas aparecendo na árvore.
+- Causa raiz: admin LF tem DESCRIBE implícito, mas SELECT é sempre grant explícito; as tabelas da silver pertencem à role do Glue (criador = dono). A governança foi entregue sem grants de consumo para humanos/CI.
+- Regra: governança LF inclui grants de CONSUMO (SELECT/DESCRIBE com TableWildcard) no mesmo PR dos locations/roles; view do Athena não é definer — quem lê a gold precisa de SELECT também na silver subjacente.
+
 ## 2026-07-15 · processo · Renomear "funções em PT-BR" virou exagero (main → principal)
 - Sintoma: pedido de "funções em PT-BR" me levou a traduzir `main`→`principal` em ~12 arquivos e a reescrever tooling 100% inglês (release.py, ensure_api_bundle.py); o usuário corrigiu: "main pode ser main, sem exagero".
 - Causa raiz: tratei "PT-BR" como tradução literal de TODO identificador, ignorando que `main`/`handler` são idiomas de entrypoint e que plumbing de CI/release não é domínio do lakehouse.
