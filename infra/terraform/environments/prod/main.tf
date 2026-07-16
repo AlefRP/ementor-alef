@@ -189,6 +189,7 @@ module "gold" {
   prefix             = local.prefix
   gold_database_name = var.gold_database_name
   artifacts_bucket   = module.storage.bucket_ids["artifacts"]
+  force_destroy      = var.force_destroy # teardown do lab: apaga o histórico de queries
   tags               = local.tags
 }
 

@@ -26,12 +26,12 @@ _RNG = random.SystemRandom()
 _FAKE = Faker('pt_BR')
 
 
-def new_event(moment: datetime) -> dict:
+def novo_evento(momento: datetime) -> dict:
     """Evento de pedido no formato do data product da camada quente."""
     return {
         'event_id': str(uuid.uuid4()),
         'event_type': f'order_{_RNG.choice(EVENT_ORDER_STATUSES)}',
-        'event_timestamp': moment.isoformat(),
+        'event_timestamp': momento.isoformat(),
         'customer': {
             'customer_unique_id': uuid.uuid4().hex,
             'customer_name': _FAKE.name(),

@@ -26,6 +26,12 @@ resource "aws_athena_workgroup" "gold" {
   description = "Consumo analitico da camada gold (views sobre a silver)"
   state       = "ENABLED"
 
+  # Teardown do lab: as queries do consumer deixam histórico no workgroup, e o
+  # DeleteWorkGroup falha com "is not empty" sem RecursiveDeleteOption. Igual aos
+  # buckets, o provider lê este flag do STATE ao deletar — o tf-force-arm o grava
+  # antes do destroy (passar -var no destroy não teria efeito).
+  force_destroy = var.force_destroy
+
   configuration {
     enforce_workgroup_configuration    = true
     publish_cloudwatch_metrics_enabled = true

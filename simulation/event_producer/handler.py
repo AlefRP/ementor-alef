@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-from ..events import new_event
+from ..events import novo_evento
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -30,7 +30,7 @@ logger.setLevel(logging.INFO)
 EVENTS_PER_REQUEST_MAX = 500
 
 
-def _config() -> dict:
+def _configuracao() -> dict:
     """Lê a configuração do ambiente a cada invocação (testável)."""
     por_requisicao = int(os.environ.get('EVENTS_PER_REQUEST', '100'))
     return {
@@ -46,8 +46,10 @@ def _config() -> dict:
 def _publicar_lote(config: dict, lote: list[dict]) -> int:
     """POST /v1/events — devolve quantos a API confirmou ter enfileirado."""
     url = f"{config['api_base_url']}/v1/events"
-    if not url.startswith(('http://', 'https://')):  # NOSONAR
-        raise ValueError(f'URL com esquema não suportado: {url}')
+    # Só HTTPS: a Event API serve TLS e este produtor verifica o cert contra a CA
+    # (API_CA_PEM). Recusar esquema sem TLS impede publicar evento em claro.
+    if not url.startswith('https://'):
+        raise ValueError(f'API_BASE_URL precisa ser https:// (recebido: {url})')
     corpo = json.dumps({'events': lote}).encode('utf-8')
     requisicao = urllib.request.Request(
         url, data=corpo, headers={'Content-Type': 'application/json'}
@@ -68,11 +70,11 @@ def _publicar_lote(config: dict, lote: list[dict]) -> int:
 
 def handler(event, context):
     """Gera N eventos e os entrega à Event API em lotes."""
-    config = _config()
+    config = _configuracao()
     publicados = 0
     try:
         momento = datetime.now(timezone.utc)
-        eventos = [new_event(momento) for _ in range(config['events_per_run'])]
+        eventos = [novo_evento(momento) for _ in range(config['events_per_run'])]
         tamanho = config['events_per_request']
         for inicio in range(0, len(eventos), tamanho):
             publicados += _publicar_lote(config, eventos[inicio : inicio + tamanho])

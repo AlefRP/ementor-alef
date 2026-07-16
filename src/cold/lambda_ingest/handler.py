@@ -95,10 +95,12 @@ def _buscar_pagina(configuracao: dict, marker: dict) -> dict:
             }
         )
     url = f"{configuracao['api_base_url']}/v1/{configuracao['dataset']}?{query}"
-    # S5332 suprimido: http em claro é decisão do lab — a API é interna à
-    # VPC (subnet privada + security group), sem TLS no serviço interno.
-    if not url.startswith(('http://', 'https://')):  # NOSONAR
-        raise ValueError(f'URL com esquema não suportado: {url}')
+    # Só HTTPS: a API serve TLS (cert self-signed, SAN = IP privado fixo) e este
+    # cliente verifica contra a CA embarcada (API_CA_FILE). Recusar qualquer
+    # esquema sem TLS garante que a ingestão nunca trafegue em claro, mesmo com
+    # API_BASE_URL mal configurada.
+    if not url.startswith('https://'):
+        raise ValueError(f'API_BASE_URL precisa ser https:// (recebido: {url})')
     requisicao = urllib.request.Request(url)
     if configuracao['api_token']:
         requisicao.add_header('x-api-token', configuracao['api_token'])

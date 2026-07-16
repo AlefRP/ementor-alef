@@ -15,9 +15,9 @@ from iceberg import (
     condicao_do_merge,
     configurar_iceberg,
     escrever_frame_do_vault,
-    log_json,
     nome_completo_da_tabela,
     novas_linhas_de_satellite,
+    registrar_log,
 )
 from vault import VaultFrame
 
@@ -74,11 +74,11 @@ def test_configurar_iceberg_aponta_warehouse_para_o_bucket():
     assert warehouse == 's3://meu-bucket/warehouse/'
 
 
-def test_log_json_emite_json_estruturado(caplog):
+def test_registrar_log_emite_json_estruturado(caplog):
     # Arrange
     with caplog.at_level(logging.INFO, logger='glue_silver'):
         # Act
-        log_json(event='vault_write', table='hub_x', staged_rows=3)
+        registrar_log(event='vault_write', table='hub_x', staged_rows=3)
 
     # Assert
     assert json.loads(caplog.records[0].message) == {

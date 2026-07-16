@@ -61,7 +61,7 @@ def _sem_sleep(monkeypatch):
 
 def test_jobs_alvo_usa_a_lista_explicita():
     # Arrange
-    args = run_silver._parse_args(['--jobs', 'cold', 'hot'])
+    args = run_silver._interpretar_args(['--jobs', 'cold', 'hot'])
 
     # Act
     jobs = run_silver._jobs_alvo(args)
@@ -76,7 +76,7 @@ def test_jobs_alvo_le_dos_outputs_do_terraform(monkeypatch):
         'silver_datavault': {'value': {'cold_job': 'job-cold', 'hot_job': 'job-hot'}}
     }
     monkeypatch.setattr(run_silver, '_saidas_do_terraform', lambda _dir: saidas)
-    args = run_silver._parse_args(['--tf-dir', 'infra/qualquer'])
+    args = run_silver._interpretar_args(['--tf-dir', 'infra/qualquer'])
 
     # Act
     jobs = run_silver._jobs_alvo(args)
@@ -87,7 +87,7 @@ def test_jobs_alvo_le_dos_outputs_do_terraform(monkeypatch):
 
 def test_jobs_alvo_sem_fonte_falha():
     # Arrange
-    args = run_silver._parse_args([])
+    args = run_silver._interpretar_args([])
 
     # Act / Assert — sem --jobs nem --tf-dir não há de onde tirar os nomes.
     with pytest.raises(SystemExit):

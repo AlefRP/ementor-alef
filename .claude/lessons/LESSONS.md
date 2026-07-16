@@ -184,7 +184,17 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: a lista de targets nativos da EventBridge *Rule* tem Glue **workflow**, não Glue **job**; o erro de "formato" é a API dizendo que o TIPO de destino não existe, não que o ARN está malformado. `terraform validate`/`plan` não pegam isso (o ARN é uma string válida) — só o apply.
 - Regra: para agendar `glue:StartJobRun`, use `aws_scheduler_schedule` (EventBridge Scheduler) com o target universal `arn:aws:scheduler:::aws-sdk:glue:startJobRun` e `input = jsonencode({ JobName = ... })`; trust da execution role é `scheduler.amazonaws.com` (não `events.amazonaws.com`). Antes de apontar um target de Rule, confira se o serviço está na lista de targets suportados.
 
+## 2026-07-15 · terraform · Athena workgroup com histórico não deleta sem force_destroy
+- Sintoma: `tf-apply-plan` (destroy) da esteira morreu no fim — `DeleteWorkGroup ... InvalidRequestException: WorkGroup ...-gold is not empty`, depois de ~20 min destruindo a rede.
+- Causa raiz: as queries do consumer deixam histórico no workgroup; `DeleteWorkGroup` sem `RecursiveDeleteOption` recusa workgroup não-vazio. O recurso não tinha `force_destroy`, e — igual ao bucket — o provider lê esse flag do STATE ao deletar, então `-var` no destroy não resolveria.
+- Regra: `aws_athena_workgroup` (e todo recurso com histórico/objetos: bucket, workgroup) ganha `force_destroy = var.force_destroy` e entra no `tf-force-arm` (um `-target` cada) para gravar o flag no state ANTES do destroy. Precondição de teardown conhecível não pode aparecer no minuto 20.
+
 ## 2026-07-14 · tool · Here-string do PowerShell na tool Bash corrompeu o commit
 - Sintoma: `git commit -m @'...'@` pela tool Bash gerou a mensagem com assunto `@` e um `@` solto no fim; precisou de `--amend`.
 - Causa raiz: a tool Bash é Git Bash (POSIX sh), não PowerShell — `@'...'@` não é here-string ali, é texto literal. As duas tools coexistem e cada uma tem a sua sintaxe.
 - Regra: mensagem multi-linha na tool Bash vai por `git commit -F <arquivo>` (ou heredoc `<<'EOF'`); `@'...'@` só na tool PowerShell. Depois de commitar, conferir com `git log -1 --format=%B`.
+
+## 2026-07-15 · processo · Renomear "funções em PT-BR" virou exagero (main → principal)
+- Sintoma: pedido de "funções em PT-BR" me levou a traduzir `main`→`principal` em ~12 arquivos e a reescrever tooling 100% inglês (release.py, ensure_api_bundle.py); o usuário corrigiu: "main pode ser main, sem exagero".
+- Causa raiz: tratei "PT-BR" como tradução literal de TODO identificador, ignorando que `main`/`handler` são idiomas de entrypoint e que plumbing de CI/release não é domínio do lakehouse.
+- Regra: PT-BR mira funções de DOMÍNIO; preserve idiomas universais (`main`, `handler`) e alinhe cada arquivo à sua convenção MAJORITÁRIA existente (traduzir o holdout inglês de um arquivo já-PT-BR é alinhamento; traduzir arquivo 100% inglês de tooling é exagero). Na dúvida de escopo amplo, confirmar a fronteira antes de reescrever.

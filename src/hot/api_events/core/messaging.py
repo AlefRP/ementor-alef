@@ -9,7 +9,7 @@ import json
 from src.hot.api_events.core.configs import SQS_BATCH_MAX
 
 
-def publicar_eventos(cliente, queue_url: str, eventos: list[dict]) -> int:
+def publicar_eventos(cliente, url_da_fila: str, eventos: list[dict]) -> int:
     """Publica os eventos em lotes de até 10 e devolve o total publicado.
 
     Rejeição parcial vira exceção: o SQS confirma mensagem a mensagem, e aceitar
@@ -22,7 +22,7 @@ def publicar_eventos(cliente, queue_url: str, eventos: list[dict]) -> int:
             {'Id': str(indice), 'MessageBody': json.dumps(evento)}
             for indice, evento in enumerate(lote)
         ]
-        resposta = cliente.send_message_batch(QueueUrl=queue_url, Entries=entradas)
+        resposta = cliente.send_message_batch(QueueUrl=url_da_fila, Entries=entradas)
         rejeitadas = resposta.get('Failed', [])
         if rejeitadas:
             raise RuntimeError(f'{len(rejeitadas)} mensagens rejeitadas pelo SQS')

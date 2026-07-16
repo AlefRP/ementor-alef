@@ -27,7 +27,7 @@ S3 = boto3.client('s3')
 ACCOUNT_ID = boto3.client('sts').get_caller_identity()['Account']
 
 
-def _delete_all_versions(bucket: str) -> None:
+def _deletar_todas_versoes(bucket: str) -> None:
     """Deleta TODAS as versões e delete markers de um bucket versionado."""
     paginator = S3.get_paginator('list_object_versions')
     deleted_total = 0
@@ -57,7 +57,7 @@ def _delete_all_versions(bucket: str) -> None:
     print(f'>> {bucket}: concluido ({deleted_total} objetos/versoes removidos)')
 
 
-def _has_content(bucket: str) -> bool:
+def _tem_conteudo(bucket: str) -> bool:
     """True se o bucket tem ao menos uma versão ou delete marker."""
     page = S3.list_object_versions(
         Bucket=bucket, MaxKeys=1, ExpectedBucketOwner=ACCOUNT_ID
@@ -65,7 +65,7 @@ def _has_content(bucket: str) -> bool:
     return bool(page.get('Versions') or page.get('DeleteMarkers'))
 
 
-def main() -> int:
+def principal() -> int:
     args = sys.argv[1:]
     check_only = '--check' in args
     buckets = [a for a in args if a != '--check']
@@ -77,11 +77,11 @@ def main() -> int:
     for bucket in buckets:
         try:
             if check_only:
-                if _has_content(bucket):
+                if _tem_conteudo(bucket):
                     dirty.append(bucket)
                 continue
             print(f'>> Esvaziando bucket versionado: {bucket}')
-            _delete_all_versions(bucket)
+            _deletar_todas_versoes(bucket)
         except S3.exceptions.NoSuchBucket:
             print(f'>> {bucket}: nao existe (ok, teardown parcial ja o removeu)')
         except Exception as exc:
@@ -97,4 +97,4 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(principal())

@@ -498,6 +498,11 @@ def test_gold_layer_is_queryable_and_cost_capped(resources):
         assert 'bytes_scanned_cutoff_per_query' in workgroup.body
         assert 'enforce_workgroup_configuration    = true' in workgroup.body
         assert 'encryption_option' in workgroup.body
+        # Teardown: sem force_destroy o DeleteWorkGroup falha com "is not empty"
+        # (o histórico das queries do consumer fica no workgroup).
+        assert (
+            'force_destroy' in workgroup.body
+        ), 'workgroup precisa de force_destroy p/ o teardown apagar o histórico'
 
 
 def test_pipeline_failures_raise_cloudwatch_alarms(resources):

@@ -20,9 +20,9 @@ router = APIRouter()
 )
 async def publicar(
     lote: LoteDeEventos,
-    request: Request,
+    requisicao: Request,
     cliente: Annotated[object, Depends(obter_cliente_sqs)],
-    settings: Annotated[Settings, Depends(obter_configuracoes)],
+    configuracoes: Annotated[Settings, Depends(obter_configuracoes)],
 ) -> RespostaPublicacao:
     """202: o evento foi aceito e enfileirado — o processamento é assíncrono.
 
@@ -32,7 +32,7 @@ async def publicar(
     eventos = [evento.model_dump(mode='json') for evento in lote.events]
     try:
         publicados = await run_in_threadpool(
-            publicar_eventos, cliente, settings.QUEUE_URL, eventos
+            publicar_eventos, cliente, configuracoes.QUEUE_URL, eventos
         )
     except Exception as erro:
         # O produtor precisa saber que NADA foi aceito para poder repetir o
@@ -42,5 +42,5 @@ async def publicar(
             detail='Falha ao publicar os eventos na fila.',
         ) from erro
     return RespostaPublicacao(
-        published=publicados, correlation_id=request.state.correlation_id
+        published=publicados, correlation_id=requisicao.state.correlation_id
     )

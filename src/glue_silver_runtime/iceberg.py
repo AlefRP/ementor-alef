@@ -21,7 +21,7 @@ CATALOG = 'glue_catalog'
 logger = logging.getLogger('glue_silver')
 
 
-def log_json(**campos) -> None:
+def registrar_log(**campos) -> None:
     """Log estruturado em JSON (convenção do repo; visível no CloudWatch)."""
     logger.info(json.dumps(campos, default=str))
 
@@ -102,7 +102,7 @@ def merge_somente_insere(
         WHEN NOT MATCHED THEN INSERT *
         """  # nosec B608 — identificadores vêm das specs internas, não de input
     )
-    log_json(event='vault_write', table=table, staged_rows=linhas_no_stage)
+    registrar_log(event='vault_write', table=table, staged_rows=linhas_no_stage)
 
 
 def merge_atualiza_ou_insere(
@@ -126,7 +126,7 @@ def merge_atualiza_ou_insere(
         WHEN NOT MATCHED THEN INSERT *
         """  # nosec B608 — identificadores vêm das specs internas, não de input
     )
-    log_json(event='vault_write', table=table, staged_rows=linhas_no_stage)
+    registrar_log(event='vault_write', table=table, staged_rows=linhas_no_stage)
 
 
 def novas_linhas_de_satellite(
@@ -155,7 +155,7 @@ def merge_de_satellite(df: DataFrame, database: str, table: str, hk: str) -> Non
     linhas_inseridas = novas.count()
     if linhas_inseridas:
         novas.writeTo(nome_completo_da_tabela(database, table)).append()
-    log_json(event='vault_write', table=table, appended_rows=linhas_inseridas)
+    registrar_log(event='vault_write', table=table, appended_rows=linhas_inseridas)
 
 
 def escrever_frame_do_vault(vault_frame: VaultFrame, database: str) -> None:

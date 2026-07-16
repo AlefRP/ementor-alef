@@ -36,7 +36,7 @@ from simulation import olist  # noqa: E402
 SCHEMA_SQL = Path(__file__).parent / 'olist_schema.sql'
 
 
-def _resolve_password() -> str:
+def _resolver_senha() -> str:
     """Senha via PGPASSWORD ou Secrets Manager (mesma lógica do seed_olist.sh)."""
     if os.environ.get('PGPASSWORD'):
         return os.environ['PGPASSWORD']
@@ -59,7 +59,7 @@ def _resolve_password() -> str:
     return json.loads(raw)['password']
 
 
-def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def _interpretar_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Seed sintético do Olist (Faker).')
     for table, default in olist.DEFAULT_SIZES.items():
         parser.add_argument(f'--{table}', type=int, default=default)
@@ -68,9 +68,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+    args = _interpretar_args(argv)
     if args.seed is not None:
-        olist.seed_random(args.seed)
+        olist.fixar_semente(args.seed)
     sizes = {table: getattr(args, table) for table in olist.DEFAULT_SIZES}
 
     with psycopg.connect(
@@ -78,15 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         port=int(os.environ.get('PGPORT', '5432')),
         dbname=os.environ.get('PGDATABASE', 'olist'),
         user=os.environ.get('PGUSER', 'lakehouse_admin'),
-        password=_resolve_password(),
+        password=_resolver_senha(),
     ) as conn:
         with conn.cursor() as cursor:
             cursor.execute(SCHEMA_SQL.read_text(encoding='utf-8'))
             conn.commit()
-            if olist.already_seeded(cursor):
+            if olist.ja_semeado(cursor):
                 print('>> olist.orders já possui dados — nada a fazer.')
                 return 0
-            counts = olist.load(cursor, sizes)
+            counts = olist.carregar(cursor, sizes)
             conn.commit()
 
     print('>> Seed sintético concluído:')

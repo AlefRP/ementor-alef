@@ -60,7 +60,7 @@ def _imprimir_resultado(athena, execucao: str) -> None:
         print(' | '.join(campos))
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+def _interpretar_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--tf-dir', help='environment do terraform (lê os outputs)')
     parser.add_argument('--query', help='nome do arquivo em src/consumer (sem .sql)')
@@ -74,7 +74,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+    args = _interpretar_args(argv)
     if args.list or not args.query:
         _dizer('consultas em src/consumer:')
         for consulta in _consultas_disponiveis():

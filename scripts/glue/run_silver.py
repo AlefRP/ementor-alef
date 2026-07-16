@@ -73,7 +73,7 @@ def _jobs_alvo(args: argparse.Namespace) -> list[str]:
     return [silver['cold_job'], silver['hot_job']]
 
 
-def _run_em_andamento(glue, job_name: str) -> str | None:
+def _execucao_em_andamento(glue, job_name: str) -> str | None:
     """Id do run não terminal mais recente do job, se houver (ordem: recente primeiro)."""
     for run in glue.get_job_runs(JobName=job_name, MaxResults=10).get('JobRuns', []):
         if run['JobRunState'] not in ESTADOS_TERMINAIS:
@@ -90,7 +90,7 @@ def _disparar(glue, job_name: str) -> str:
     except ClientError as erro:
         if _codigo_do_erro(erro) != 'ConcurrentRunsExceededException':
             raise
-        existente = _run_em_andamento(glue, job_name)
+        existente = _execucao_em_andamento(glue, job_name)
         if not existente:
             raise
         _dizer(
@@ -119,7 +119,7 @@ def _esperar(glue, job_name: str, run_id: str) -> None:
     _dizer(f'{job_name}: OK')
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+def _interpretar_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--tf-dir', help='environment do terraform (lê os outputs)')
     parser.add_argument('--jobs', nargs='+', metavar='JOB', help=AJUDA_SOBRESCREVE)
@@ -127,7 +127,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
+    args = _interpretar_args(argv)
     jobs = _jobs_alvo(args)
     _dizer(f'silver: disparando {len(jobs)} job(s) e aguardando conclusao')
 
