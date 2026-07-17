@@ -3,6 +3,30 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versionamento [SemVer](https://semver.org/) derivado de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 Gerado automaticamente pelo workflow `release.yml` a cada push na master/main com commit `feat`/`fix`/`BREAKING CHANGE` — não editar manualmente.
 
+## [0.4.0] - 2026-07-17
+### Adicionado
+- feat(governanca): analistas humanos via Lake Formation e deployer sem admin (2e45723)
+- feat(hot,gold): Event API na EC2, camada gold/consumer e alarmes do CloudWatch (e98015c)
+- feat(silver): camada silver como Raw Data Vault em Iceberg via Glue (1b71bd0)
+### Corrigido
+- fix(silver): tolera raw vazia no silver-run da esteira (700bd6a)
+- fix(ci): adiciona retry no setup do tflint (0b3120c)
+- fix(ci): estabiliza SARIF do Checkov (f58f3ab)
+- fix(governanca): cobre o ciclo de MFA no teardown dos users analistas (30c94a5)
+- fix(governanca): concede SELECT do consumo na silver e gold via Lake Formation (5767514)
+- fix(governanca): ordena o boot das EC2 apos as policies da ec2-api (411990f)
+- fix(glue): nao seta config estatica spark.sql.extensions em sessao ativa (e862567)
+- fix(governanca): permite logs:AssociateKmsKey a role do Glue silver (968a108)
+- fix: harden lakehouse deploy and teardown (e1e3c3d)
+- fix(ci): roda a silver antes da gold no apply do merge (c671d8e)
+- fix(glue): agenda os jobs silver via EventBridge Scheduler (3db4696)
+- fix(glue): adiciona kms:ListResourceTags a key policy da chave silver (7a189fe)
+- fix(glue): documenta a key policy da KMS e isenta os checks de identidade (b2724eb)
+- fix: address sonar cleanup warnings (2308819)
+### Modificado
+- refactor(api,lambdas): funcoes em PT-BR e testes na estrutura AAA (bac7cd3)
+- refactor: expose olist tables with explicit routes (a398e8c)
+
 ## [0.3.0] - 2026-07-10
 ### Adicionado
 - feat(api): todos os datasets do Olist na API, ingestao por PK e cache-aside (1aed12c)
