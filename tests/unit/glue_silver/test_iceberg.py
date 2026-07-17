@@ -217,6 +217,54 @@ def test_merge_atualiza_ou_insere_executa_upsert_e_loga_linhas(monkeypatch, capl
     }
 
 
+def test_merge_somente_insere_materializa_tabela_vazia_sem_merge(monkeypatch, caplog):
+    # Arrange — raw vazia (0 linhas): a gold precisa da tabela existir mesmo assim
+    garantidas = []
+    monkeypatch.setattr(
+        iceberg, 'garantir_tabela', lambda df, db, table: garantidas.append(table)
+    )
+    sessao = SessaoFalsa()
+    df = DataFrameFalso(sessao, linhas=0)
+
+    # Act
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        iceberg.merge_somente_insere(df, 'db', 'hub_x', ['x_hk'])
+
+    # Assert — tabela garantida, nenhum MERGE, e o log registra 0 linhas
+    assert garantidas == ['hub_x']
+    assert sessao.sqls == []
+    assert _ultimo_log(caplog) == {
+        'event': 'vault_write',
+        'table': 'hub_x',
+        'staged_rows': 0,
+    }
+
+
+def test_merge_atualiza_ou_insere_materializa_tabela_vazia_sem_upsert(
+    monkeypatch, caplog
+):
+    # Arrange — raw vazia (0 linhas): a gold precisa da tabela existir mesmo assim
+    garantidas = []
+    monkeypatch.setattr(
+        iceberg, 'garantir_tabela', lambda df, db, table: garantidas.append(table)
+    )
+    sessao = SessaoFalsa()
+    df = DataFrameFalso(sessao, linhas=0)
+
+    # Act
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        iceberg.merge_atualiza_ou_insere(df, 'db', 'ref_x', ['k'])
+
+    # Assert — tabela garantida, nenhum upsert, e o log registra 0 linhas
+    assert garantidas == ['ref_x']
+    assert sessao.sqls == []
+    assert _ultimo_log(caplog) == {
+        'event': 'vault_write',
+        'table': 'ref_x',
+        'staged_rows': 0,
+    }
+
+
 def test_merge_de_satellite_anexa_novas_versoes_e_loga_linhas(monkeypatch, caplog):
     # Arrange — satellite: só as linhas com hashdiff novo entram (append)
     monkeypatch.setattr(iceberg, 'garantir_tabela', lambda df, db, table: None)

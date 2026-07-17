@@ -219,6 +219,11 @@ Lição aplicada 2x com sucesso → promover a regra para a skill/agent correspo
 - Causa raiz: admin LF tem DESCRIBE implícito, mas SELECT é sempre grant explícito; as tabelas da silver pertencem à role do Glue (criador = dono). A governança foi entregue sem grants de consumo para humanos/CI.
 - Regra: governança LF inclui grants de CONSUMO (SELECT/DESCRIBE com TableWildcard) no mesmo PR dos locations/roles; view do Athena não é definer — quem lê a gold precisa de SELECT também na silver subjacente.
 
+## 2026-07-17 · ci · silver-run na esteira falha em raw vazia (apply do zero)
+- Sintoma: `make silver-run` quebrou — silver-cold `FAILED` com `datasets com falha: <TODOS os 9>`; silver-hot `SUCCEEDED`. Run cold durou 64s (falha rápida no read), hot 233s (processou de verdade). Só a raw fria estava vazia.
+- Causa raiz: o job terraform-apply roda `tf-apply-plan → silver-run → athena-gold` SEM etapa de ingestão; num apply do zero a raw fria não foi populada (RDS não semeado / ingestão fria é assíncrona por EventBridge). `spark.read.text(glob)` levanta `Path does not exist` quando o glob não casa arquivo, e falha uniforme nos 9. Os logs `dataset_failed` (INFO) não chegam ao CloudWatch numa falha de 64s (continuous logging não deu flush) — só o ErrorMessage agregado aparece; diagnóstico via `get-job-run` (resolve run de job já deletado) + duração cold vs hot.
+- Regra: etapa de pipeline que lê fonte que PODE estar vazia (raw recém-criada) deve degradar (DataFrame vazio com o schema da spec + garantir a tabela mesmo com 0 linhas), não hard-fail; a esteira não pode acoplar silver-run a ingestão assíncrona. Falha rápida + uniforme em TODOS os itens = problema na FONTE (vazia/permissão), não nos dados.
+
 ## 2026-07-15 · processo · Renomear "funções em PT-BR" virou exagero (main → principal)
 - Sintoma: pedido de "funções em PT-BR" me levou a traduzir `main`→`principal` em ~12 arquivos e a reescrever tooling 100% inglês (release.py, ensure_api_bundle.py); o usuário corrigiu: "main pode ser main, sem exagero".
 - Causa raiz: tratei "PT-BR" como tradução literal de TODO identificador, ignorando que `main`/`handler` são idiomas de entrypoint e que plumbing de CI/release não é domínio do lakehouse.
