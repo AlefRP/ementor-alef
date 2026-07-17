@@ -332,6 +332,16 @@ jobs:
       - name: Terraform Apply
         run: make tf-apply-plan
 
+      # Carga fria inicial CONDICIONADA: num ambiente do zero a raw fria nasce
+      # vazia (a ingestão agendada só dispara após um intervalo completo do
+      # rate) e o silver-run materializaria tabelas vazias até ~3h depois.
+      # O alvo só ingere dataset cujo prefixo da raw está vazio — num ambiente
+      # vivo é no-op rápido. O RDS já foi semeado pelo próprio apply
+      # (aws_lambda_invocation do db_seeder) e os retries do script cobrem a
+      # API EC2 ainda subindo.
+      - name: Carga fria inicial (só se a raw estiver vazia)
+        run: make raw-bootstrap-if-empty
+
       # As views da gold leem as tabelas Data Vault da silver; num ambiente
       # recém-aplicado elas ainda não existem (o job Glue silver é agendado por
       # EventBridge, não roda no apply). Rodamos a silver aqui e esperamos o

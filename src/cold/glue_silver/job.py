@@ -13,6 +13,7 @@ from iceberg import (
     configurar_iceberg,
     escrever_frame_do_vault,
     garantir_database,
+    registrar_erro,
     registrar_log,
 )
 from raw import caminho_frio, ler_arquivos_de_lote_json
@@ -63,7 +64,7 @@ def main() -> None:
             registrar_log(event='dataset_done', dataset=dataset)
         except Exception as erro:  # noqa: BLE001 — reportado e re-levantado no fim
             falhas.append(dataset)
-            registrar_log(event='dataset_failed', dataset=dataset, error=str(erro))
+            registrar_erro(event='dataset_failed', dataset=dataset, error=str(erro))
 
     job.commit()
     if falhas:

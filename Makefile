@@ -245,6 +245,13 @@ tf-output:
 raw-bootstrap:
 	python scripts/deploy/bootstrap_raw.py --tf-dir $(TF_DIR)
 
+# Variante condicionada da carga fria, pensada para a esteira: só ingere os
+# datasets cujo prefixo da raw está VAZIO (ambiente do zero); com dados, é
+# no-op rápido. Assim o merge à master entrega um ambiente novo já populado
+# sem reingerir nada num ambiente vivo.
+raw-bootstrap-if-empty:
+	python scripts/deploy/bootstrap_raw.py --tf-dir $(TF_DIR) --somente-se-vazio
+
 # Esvazia buckets versionados (raw, silver, artifacts) via API — deleta todas
 # as versões e delete markers. Necessário antes do tf-destroy com FORCE=1,
 # já que force_destroy do Terraform não remove versões de buckets versionados.
