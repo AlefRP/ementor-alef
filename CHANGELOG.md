@@ -3,6 +3,12 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versionamento [SemVer](https://semver.org/) derivado de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 Gerado automaticamente pelo workflow `release.yml` a cada push na master/main com commit `feat`/`fix`/`BREAKING CHANGE` — não editar manualmente.
 
+## [0.5.0] - 2026-07-17
+### Adicionado
+- feat(ci): carga fria inicial condicionada no apply da esteira (c49a4a2)
+### Corrigido
+- fix(glue): destrava o upsert das refs no MERGE copy-on-write e expoe falhas de dataset (d6fe32e)
+
 ## [0.4.0] - 2026-07-17
 ### Adicionado
 - feat(governanca): analistas humanos via Lake Formation e deployer sem admin (2e45723)
