@@ -15,8 +15,10 @@ from iceberg import (
     condicao_do_merge,
     configurar_iceberg,
     escrever_frame_do_vault,
+    linhas_unicas_por_chave,
     nome_completo_da_tabela,
     novas_linhas_de_satellite,
+    registrar_erro,
     registrar_log,
 )
 from vault import VaultFrame
@@ -71,8 +73,13 @@ class DataFrameFalso:
         self._linhas = linhas
         self.escrita = EscritaFalsa()
         self.view = None
+        self.checkpoints = 0
 
     def dropDuplicates(self, _chaves):
+        return self
+
+    def localCheckpoint(self):
+        self.checkpoints += 1
         return self
 
     def count(self):
@@ -173,6 +180,41 @@ def test_novas_linhas_de_satellite_insere_chave_inedita(spark):
     assert novas.count() == 1
 
 
+def test_registrar_erro_emite_json_no_nivel_error(caplog):
+    # Arrange
+    with caplog.at_level(logging.INFO, logger='glue_silver'):
+        # Act
+        registrar_erro(event='dataset_failed', dataset='geolocation', error='boom')
+
+    # Assert — falha de dataset sai como ERROR (INFO some no driver do Glue)
+    assert caplog.records[-1].levelno == logging.ERROR
+    assert json.loads(caplog.records[-1].message)['event'] == 'dataset_failed'
+
+
+def test_logger_do_runtime_tem_handler_proprio():
+    # Arrange / Act — o handler é anexado no import do módulo
+    handlers = iceberg.logger.handlers
+
+    # Assert — sem handler explícito o Glue descarta INFO (lastResort é WARNING+)
+    assert handlers
+    assert iceberg.logger.level == logging.INFO
+
+
+def test_linhas_unicas_por_chave_mantem_uma_linha_deterministica(spark):
+    # Arrange — chave duplicada com atributos diferentes entre os lotes
+    df = spark.createDataFrame(
+        [('k1', 'b'), ('k1', 'a'), ('k2', 'c')],
+        'chave string, atributo string',
+    )
+
+    # Act
+    unicas = linhas_unicas_por_chave(df, ['chave'])
+
+    # Assert — uma linha por chave e escolha estável (menor valor na ordenação)
+    resultado = {r['chave']: r['atributo'] for r in unicas.collect()}
+    assert resultado == {'k1': 'a', 'k2': 'c'}
+
+
 def _ultimo_log(caplog) -> dict:
     """Decodifica o último registro JSON emitido pelo logger do runtime."""
     return json.loads(caplog.records[-1].message)
@@ -201,6 +243,7 @@ def test_merge_somente_insere_executa_merge_e_loga_linhas(monkeypatch, caplog):
 def test_merge_atualiza_ou_insere_executa_upsert_e_loga_linhas(monkeypatch, caplog):
     # Arrange — references: upsert (estado corrente, sem histórico)
     monkeypatch.setattr(iceberg, 'garantir_tabela', lambda df, db, table: None)
+    monkeypatch.setattr(iceberg, 'linhas_unicas_por_chave', lambda df, keys: df)
     sessao = SessaoFalsa()
     df = DataFrameFalso(sessao, linhas=2)
 
@@ -208,8 +251,9 @@ def test_merge_atualiza_ou_insere_executa_upsert_e_loga_linhas(monkeypatch, capl
     with caplog.at_level(logging.INFO, logger='glue_silver'):
         iceberg.merge_atualiza_ou_insere(df, 'db', 'ref_x', ['k'])
 
-    # Assert
+    # Assert — upsert emitido e stage materializado (plano determinístico)
     assert 'WHEN MATCHED THEN UPDATE SET *' in sessao.sqls[0]
+    assert df.checkpoints == 1
     assert _ultimo_log(caplog) == {
         'event': 'vault_write',
         'table': 'ref_x',
@@ -248,6 +292,7 @@ def test_merge_atualiza_ou_insere_materializa_tabela_vazia_sem_upsert(
     monkeypatch.setattr(
         iceberg, 'garantir_tabela', lambda df, db, table: garantidas.append(table)
     )
+    monkeypatch.setattr(iceberg, 'linhas_unicas_por_chave', lambda df, keys: df)
     sessao = SessaoFalsa()
     df = DataFrameFalso(sessao, linhas=0)
 

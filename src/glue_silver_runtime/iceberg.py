@@ -20,10 +20,25 @@ CATALOG = 'glue_catalog'
 
 logger = logging.getLogger('glue_silver')
 
+# No driver do Glue nenhum handler é configurado para loggers Python: sem este
+# handler explícito, INFO é DESCARTADO (o lastResort só emite WARNING+) e o log
+# de erro por dataset nunca chega ao CloudWatch — o grupo de error só recebe o
+# log4j da JVM; o stdout do driver vai ao grupo de output no fim do job.
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter('GLUE_SILVER %(levelname)s %(message)s'))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+
 
 def registrar_log(**campos) -> None:
     """Log estruturado em JSON (convenção do repo; visível no CloudWatch)."""
     logger.info(json.dumps(campos, default=str))
+
+
+def registrar_erro(**campos) -> None:
+    """Log estruturado de ERRO — falha de dataset não pode sair como INFO."""
+    logger.error(json.dumps(campos, default=str))
 
 
 def configurar_iceberg(spark, silver_bucket: str) -> None:
@@ -110,6 +125,25 @@ def merge_somente_insere(
     registrar_log(event='vault_write', table=table, staged_rows=linhas_no_stage)
 
 
+def linhas_unicas_por_chave(df: DataFrame, keys: list[str]) -> DataFrame:
+    """Uma linha por chave, escolhida de forma DETERMINÍSTICA.
+
+    ``dropDuplicates`` compila para um aggregate com ``first()``, expressão
+    não-determinística para o Spark. O MERGE com UPDATE (copy-on-write) do
+    Iceberg reescreve a fonte num filtro do plano ``ReplaceData``, e a análise
+    rejeita fonte não-determinística (INVALID_NON_DETERMINISTIC_EXPRESSIONS) —
+    o job morre antes de qualquer task. ``row_number`` sobre janela ordenada
+    por todas as colunas é determinístico e mantém o "uma linha por chave".
+    """
+    demais = [col for col in df.columns if col not in keys]
+    janela = Window.partitionBy(*keys).orderBy(*keys, *demais)
+    return (
+        df.withColumn('_rn', F.row_number().over(janela))
+        .where(F.col('_rn') == 1)
+        .drop('_rn')
+    )
+
+
 def merge_atualiza_ou_insere(
     df: DataFrame, database: str, table: str, keys: list[str]
 ) -> None:
@@ -119,8 +153,14 @@ def merge_atualiza_ou_insere(
     pode estar vazia, e a gold ainda precisa da tabela existir para o
     ``CREATE OR REPLACE VIEW`` — sem linhas, materializa a tabela vazia e não faz
     o upsert.
+
+    O ``localCheckpoint`` materializa o stage e entrega ao MERGE um plano-folha
+    determinístico: a análise do copy-on-write varre o plano INTEIRO da fonte
+    (antes do prune de colunas), e a leitura da raw carrega ``input_file_name()``
+    (não-determinística) mesmo com a coluna ``raw_file`` já descartada. Refs são
+    lookups pequenos — o custo de materializar é desprezível.
     """
-    sem_duplicatas = df.dropDuplicates(keys)
+    sem_duplicatas = linhas_unicas_por_chave(df, keys).localCheckpoint()
     garantir_tabela(sem_duplicatas, database, table)
     linhas_no_stage = sem_duplicatas.count()
     if linhas_no_stage:
