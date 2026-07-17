@@ -63,7 +63,9 @@ def _payload_do_dataset(dataset: str) -> dict[str, Any]:
     return {'dataset': dataset, 'cursor_mode': 'pk'}
 
 
-def _invocar_lambda(cliente_lambda, nome: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _invocar_lambda(
+    cliente_lambda, nome: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     resposta = cliente_lambda.invoke(
         FunctionName=nome,
         InvocationType='RequestResponse',
@@ -132,6 +134,14 @@ def _interpretar_args(argv: list[str] | None) -> argparse.Namespace:
         default=30,
         help='espera entre tentativas',
     )
+    parser.add_argument(
+        '--somente-se-vazio',
+        action='store_true',
+        help=(
+            'so ingere dataset cujo prefixo da raw esta vazio; com dados, pula '
+            '(modo da esteira: carga inicial no ambiente do zero, no-op depois)'
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -146,6 +156,11 @@ def principal(argv: list[str] | None = None) -> int:
 
         _avisar(f'carga fria inicial via {funcao_fria}')
         for dataset in args.datasets_frios:
+            # Checagem por dataset: ambiente do zero carrega tudo, ambiente
+            # vivo vira no-op, e um dataset novo adicionado depois entra sozinho.
+            if args.somente_se_vazio and _contar_prefixo_raw(bucket_raw, dataset):
+                _avisar(f'{dataset}: raw ja tem dados, pulando (--somente-se-vazio)')
+                continue
             resposta = _invocar_com_retry(
                 cliente_lambda,
                 funcao_fria,
