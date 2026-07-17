@@ -90,3 +90,32 @@ def test_ler_arquivos_de_evento_json_um_evento_por_arquivo(spark, tmp_path):
     assert linha.event_id == 'e1'
     assert linha.record_source == 'raw.hot.events'
     assert linha.raw_partition_date == date(2026, 7, 10)
+
+
+def test_ler_arquivos_de_lote_json_devolve_vazio_sem_arquivos(spark, tmp_path):
+    # Arrange — glob que não casa nada (raw fria recém-aplicada, sem ingestão)
+    caminho = (tmp_path / 'customers').as_posix() + '/year=*/month=*/day=*/*.json'
+
+    # Act
+    df = ler_arquivos_de_lote_json(
+        spark, caminho, 'customers', SCHEMA_DE_CLIENTE, 'raw.olist'
+    )
+
+    # Assert — sem linhas, mas com o schema da fonte + os metadados de carga
+    assert df.count() == 0
+    assert 'customer_id' in df.columns
+    assert {'load_dts', 'record_source', 'raw_partition_date'} <= set(df.columns)
+
+
+def test_ler_arquivos_de_evento_json_devolve_vazio_sem_arquivos(spark, tmp_path):
+    # Arrange — glob que não casa nada (raw quente recém-aplicada, sem eventos)
+    schema = StructType([StructField('event_id', StringType(), False)])
+    caminho = (tmp_path / 'events').as_posix() + '/year=*/month=*/day=*/*.json'
+
+    # Act
+    df = ler_arquivos_de_evento_json(spark, caminho, 'events', schema, 'raw.hot')
+
+    # Assert — sem linhas, mas com o schema da fonte + os metadados de carga
+    assert df.count() == 0
+    assert 'event_id' in df.columns
+    assert {'load_dts', 'record_source', 'raw_partition_date'} <= set(df.columns)

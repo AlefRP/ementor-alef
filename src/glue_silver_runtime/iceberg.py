@@ -86,47 +86,55 @@ def condicao_do_merge(keys: list[str]) -> str:
 def merge_somente_insere(
     df: DataFrame, database: str, table: str, keys: list[str]
 ) -> None:
-    """Hubs e links: insere apenas hash keys inéditas (histórico imutável)."""
-    sem_duplicatas = df.dropDuplicates(keys)
-    linhas_no_stage = sem_duplicatas.count()
-    if linhas_no_stage == 0:
-        return
+    """Hubs e links: insere apenas hash keys inéditas (histórico imutável).
 
+    ``garantir_tabela`` roda antes do guard de linhas: num apply do zero a raw
+    pode estar vazia, e a gold ainda precisa da tabela existir para o
+    ``CREATE OR REPLACE VIEW`` — sem linhas, materializa a tabela vazia e não faz
+    o MERGE.
+    """
+    sem_duplicatas = df.dropDuplicates(keys)
     garantir_tabela(sem_duplicatas, database, table)
-    view = f'stage_{table}'
-    sem_duplicatas.createOrReplaceTempView(view)
-    sem_duplicatas.sparkSession.sql(
-        f"""
-        MERGE INTO {nome_completo_da_tabela(database, table)} t
-        USING {view} s
-        ON {condicao_do_merge(keys)}
-        WHEN NOT MATCHED THEN INSERT *
-        """  # nosec B608 — identificadores vêm das specs internas, não de input
-    )
+    linhas_no_stage = sem_duplicatas.count()
+    if linhas_no_stage:
+        view = f'stage_{table}'
+        sem_duplicatas.createOrReplaceTempView(view)
+        sem_duplicatas.sparkSession.sql(
+            f"""
+            MERGE INTO {nome_completo_da_tabela(database, table)} t
+            USING {view} s
+            ON {condicao_do_merge(keys)}
+            WHEN NOT MATCHED THEN INSERT *
+            """  # nosec B608 — identificadores vêm das specs internas, não de input
+        )
     registrar_log(event='vault_write', table=table, staged_rows=linhas_no_stage)
 
 
 def merge_atualiza_ou_insere(
     df: DataFrame, database: str, table: str, keys: list[str]
 ) -> None:
-    """References: upsert — lookup guarda o estado corrente, não histórico."""
-    sem_duplicatas = df.dropDuplicates(keys)
-    linhas_no_stage = sem_duplicatas.count()
-    if linhas_no_stage == 0:
-        return
+    """References: upsert — lookup guarda o estado corrente, não histórico.
 
+    ``garantir_tabela`` roda antes do guard de linhas: num apply do zero a raw
+    pode estar vazia, e a gold ainda precisa da tabela existir para o
+    ``CREATE OR REPLACE VIEW`` — sem linhas, materializa a tabela vazia e não faz
+    o upsert.
+    """
+    sem_duplicatas = df.dropDuplicates(keys)
     garantir_tabela(sem_duplicatas, database, table)
-    view = f'stage_{table}'
-    sem_duplicatas.createOrReplaceTempView(view)
-    sem_duplicatas.sparkSession.sql(
-        f"""
-        MERGE INTO {nome_completo_da_tabela(database, table)} t
-        USING {view} s
-        ON {condicao_do_merge(keys)}
-        WHEN MATCHED THEN UPDATE SET *
-        WHEN NOT MATCHED THEN INSERT *
-        """  # nosec B608 — identificadores vêm das specs internas, não de input
-    )
+    linhas_no_stage = sem_duplicatas.count()
+    if linhas_no_stage:
+        view = f'stage_{table}'
+        sem_duplicatas.createOrReplaceTempView(view)
+        sem_duplicatas.sparkSession.sql(
+            f"""
+            MERGE INTO {nome_completo_da_tabela(database, table)} t
+            USING {view} s
+            ON {condicao_do_merge(keys)}
+            WHEN MATCHED THEN UPDATE SET *
+            WHEN NOT MATCHED THEN INSERT *
+            """  # nosec B608 — identificadores vêm das specs internas, não de input
+        )
     registrar_log(event='vault_write', table=table, staged_rows=linhas_no_stage)
 
 
